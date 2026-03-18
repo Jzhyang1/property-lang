@@ -1,0 +1,4 @@
+"lib/compile.py" python import;
+"lib/printing.py" python import;
+
+code do(12 print.) compile("out.o");
