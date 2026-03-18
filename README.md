@@ -60,6 +60,10 @@ We mentioned the property removal. Several other special properties exist:
 - `string(...)`: a primative type. Not indexable nor iterable
 - `compound`:* shorthand for `indexable[expression] iterable[expression]`
 - `symbols`:* gives the `symbol` of an `expression`
+- `structure`: has fields
+- `field_set(...)`: sets the properties of the field given by the argument symbol
+  to their properties
+- `field_get(...)`: takes the symbol given and gets its associated value
 - `properties`: gives an `indexable[property] iterable[property]` 
   of all properties of an `expression` in right-to-left order.
 - `resolution(...)`: resolves the symbol and preceding properties to a 

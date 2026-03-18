@@ -2,7 +2,7 @@ import inspect
 import sys
 import os
 import ast
-from typing import NoReturn
+from typing import Any, Callable, NoReturn
 from functools import wraps
 
 from constants import Definition, Scope, Expression, Property, Token, expand_property
@@ -41,7 +41,7 @@ def builtin_defn(defn_class):
                    Expression(Token('body', file, row, 0), []))
     )
 
-def binary_apply(func):
+def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
     '''
     unwarps the apply args to a single argument
     '''
@@ -182,6 +182,36 @@ class DoDefinition(Definition):
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         return lhs
     
+@builtin_defn
+class FieldGetDefinition(Definition):
+    symbol = 'field_get'
+    param_names = ['field_name_symbol']
+    property_names = ['structure']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        val = lhs.try_get_property('structure')
+        assert val is not None
+        field = rhs.symbol
+        if field not in val.associated_value:
+            perror(f"{lhs} has no field {rhs}")
+        return val.associated_value[field]
+
+@builtin_defn
+class FieldSetDefinition(Definition):
+    symbol = 'field_set'
+    param_names = ['field']
+    property_names = ['structure']
+    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+        val = lhs.try_get_property('structure')
+        assert val is not None
+        # Just in case it is None-value
+        if not val.is_association:
+            val.is_association = True
+            val.associated_value = {}
+        for expr in rhs:
+            val.associated_value[expr.symbol] = expr
+        return lhs
+
 @builtin_defn
 class IdentifierDefinition(Definition):
     symbol = 'identifier'
