@@ -1,0 +1,8 @@
+"lib/printing.py" python import;
+
+x collection indexable iterable appendable declare;
+x.append(2);
+x.append(3);
+z assign{x each(n, n.+(1))};
+y assign{z index(1). <(4)};
+y.print;
