@@ -1,9 +1,9 @@
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token, expand_property
-    from definitions import builtin_defn, binary_apply, pwarning, perror
+    from definitions import builtin_definition, binary_apply, pwarning, perror
 
 
-@builtin_defn
+@builtin_definition
 class PrintIntegerDefinition(Definition):
     symbol = 'print'
     property_names = ['integer']
@@ -13,7 +13,7 @@ class PrintIntegerDefinition(Definition):
         print(ival)
         return lhs
 
-@builtin_defn
+@builtin_definition
 class PrintStringDefinition(Definition):
     symbol = 'print'
     property_names = ['string']

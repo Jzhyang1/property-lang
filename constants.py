@@ -22,11 +22,6 @@ separators = {
     ',', ';'
 }
 
-# Used only by the interpreter internally
-property_shorthands = {
-    'list': ['collection', 'indexable', 'iterable', 'appendable']
-}
-
 class Token:
     def __init__(self, s: str, file: str, row: int, col: int):
         self.s = s
@@ -117,9 +112,3 @@ class Scope:
 
         parent_defn_lookup = parent_scope.defn_lookup if parent_scope is not None else lambda x: []
         self.defn_lookup = local_defnscope(local_defns, parent_defn_lookup)
-
-def expand_property(anchor: Token, shorthand: str) -> list[Property]:
-    '''
-    we always have the value-storing property at index 0
-    '''
-    return [Property(anchor.create_renamed(s)) for s in property_shorthands[shorthand]]

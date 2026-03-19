@@ -50,41 +50,52 @@ Properties do not generally need to be resolved (some are pure descriptors);
 but they are most useful when they are resolved.
 *Unknown properties will raise a warning*.
 
-We mentioned the property removal. Several other special properties exist:
+We mentioned the property removal. Here are the most important properties:
+- `.`: resolves the last property
+- `;`: resolve the last property (used as `.,`)
+- `declare`: `identifier`: resolves by defining a variable with the symbol; need to 
+  resolve future occurances of the symbol to use the variable.
+- `list`: does not resolve, but lets the language know that the expression
+  is a list of expressions
+- `identifier`: resolves the symbol to a variable
+- `import`: expects a string property; additional language specifier can be included 
+  otherwise defaults to pl script import. Example `"compile.py" python import`
+- `structure`: does not resolve, but lets the language know that the 
+  expression has fields
+
+- `.(...)`:* resolves the last property with the specified arguments
+- `assign(...)`: `identifier`: assigns to the variable associated with a symbol
+- `do(...)`: this is a no-op. Use this for evaluating arguments
+- `field_set(...)`: `structure`: sets the properties of the field given by the argument 
+  symbol to their properties
+- `field_get(...)`: `structure`: takes the symbol given and gets its associated value
+- `index(...)`: `list`: resolves into the idx index element (0-based) of a list
+- `resolution(...)`: resolves the symbol and preceding properties to a 
+  user-defined resolution sequence (see next section)
+- `then(...)`: resolves into the enclosed value if there is a non-0 integer property
+  otherwise a no-op
+- `else(...)`: resolves into the enclosed value if there is a 0 integer property
+  otherwise searches for the last `then` property to resolve, no-op if not found
+
+
+Here's a list of all remaining built-in properties:
 - `expression`:*
 - `symbol`:* this property cannot be added to an expression
 - `property`: this property cannot be added to an expression
-- `identifier`: resolves the symbol to a variable
 - `operator`:
-- `integer(...)`: 
-- `string(...)`: a primative type. Not indexable nor iterable
+- `integer`: 
+- `string`: a primative type. Not indexable nor iterable
 - `compound`:* shorthand for `indexable[expression] iterable[expression]`
 - `symbols`:* gives the `symbol` of an `expression`
-- `structure`: has fields
-- `field_set(...)`: sets the properties of the field given by the argument symbol
-  to their properties
-- `field_get(...)`: takes the symbol given and gets its associated value
 - `properties`: gives an `indexable[property] iterable[property]` 
   of all properties of an `expression` in right-to-left order.
-- `resolution(...)`: resolves the symbol and preceding properties to a 
-  user-defined resolution sequence (see next section)
 - `invoke(...)`:* gives the expression containing properties up to 
   and including the last occurrence of the specified property
-- `declare`
-- `assign(...)`: assigns to a symbol
-- `do(...)`: this is a no-op. Use this for evaluating arguments
-- `indexable`: 
-- `iterable`: 
-- `index[/*idx int*/]`: gets the idx index element (0-based) of an indexable
 - `each(item_placeholder, ...)`: applies the body to each item
   where `item_placeholder` is the symbol used in the body for the 
   iterated item, and the result is the 1-to-1 mapping of each item 
   to the result of the body
-- `import`: expects a string property; additional language specifier can be included otherwise defaults to pl script import. Example `"compile.py" python import`
 - `assert(...)`: throws an error if the property inside is not non-0
-- `.`: resolves the last property
-- `.(...)`:* resolves the last property with the specified arguments
-- `;`: resolve the last property (used as `.,`)
 
 ## Declaring Variables
 ```Kotlin

@@ -1,14 +1,6 @@
-from constants import Property, Expression, Definition, Scope, expand_property
-from definitions import global_definitions, pwarning, builtin_defn, binary_apply
+from constants import Property, Expression, Definition, Scope
+from definitions import global_definitions, pwarning, builtin_definition, binary_apply
 from tokenizer import tokenize, build_tree
-
-def remove_property(properties: list['Property'], property_name: str, reverse: bool=False) -> bool:
-    seq = reversed(range(len(properties))) if reverse else range(len(properties))
-    for i in seq:
-        if properties[i].property == property_name:
-            properties.pop(i)
-            return True
-    return False
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: 'Scope') -> Expression:
@@ -19,26 +11,6 @@ class UserDefinedDefinition(Definition):
             new_varscope[param.symbol.s] = arg
         new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
         return resolve_expr(self.body, new_scope)
-
-@builtin_defn
-class ResolutionDefinition(Definition):
-    symbol = 'resolution'
-    param_names = ['body']
-    @binary_apply
-    def apply(self, lhs: Expression, body: Expression, scope: Scope) -> Expression:
-        *placeholder_properties, property = lhs.properties
-        # remove 'identifier' from properties and parameters
-        remove_property(placeholder_properties, 'identifier')
-        parameters = [Expression(e.symbol, e.properties) for e in property.compound_properties]
-        for e in parameters:
-            remove_property(e.properties, 'identifier')
-
-        # add to definitions
-        scope.local_defns.setdefault(property.property.s, []).append(
-            UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
-                       property.is_compound, property.compound_properties, body)
-        )
-        return lhs
 
 
 # Begin function definitions

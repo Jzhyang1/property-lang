@@ -4,8 +4,8 @@ import llvmlite.ir as ir
 import llvmlite.binding as llvm
 
 if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token, expand_property
-    from definitions import builtin_defn, binary_apply, pwarning, perror
+    from constants import Definition, Scope, Expression, Property, Token
+    from definitions import builtin_definition, binary_apply, pwarning, perror
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -111,11 +111,44 @@ def _compile_expression(expression: Expression, scope: CompileScope,
             for expr in p.compound_properties:
                 last_val = _compile_expression(expr, scope, module, builder)
             return last_val
+        elif p.property == 'else':
+            # TODO our language has 3 additional cases:
+            # 1. there is no then-statement
+            # 2. there is no else-statement
+            # 3. there is something between the then and else statements (handled the same as 1 combined to 2)
+            # check for then-statement right before else
+            if len(properties) == 0 or properties[-1].property.s != 'then':
+                perror('else without then is not supported')
+            *properties, then_prop = properties
+            condition = _compile_expression(
+                Expression(expression.symbol, properties),
+                scope, module, builder
+            )
+            then_block = builder.append_basic_block('then')
+            else_block = builder.append_basic_block('else')
+            merge_block = builder.append_basic_block('ifcont')
+            builder.cbranch(builder.icmp_signed('!=', condition, ir.Constant(ir.IntType(64), 0), 'ifcond'), then_block, else_block)
+            builder.position_at_start(then_block)
+            # TODO if there are no expressions then_val will be undefined
+            for expr in then_prop.compound_properties:
+                then_val = _compile_expression(expr, scope, module, builder)
+            builder.branch(merge_block)
+            builder.position_at_start(else_block)
+            # TODO if there are no expressions else_val will be undefined
+            for expr in p.compound_properties:
+                else_val = _compile_expression(expr, scope, module, builder)
+            builder.branch(merge_block)
+            builder.position_at_start(merge_block)
+            # Return value is whatever executes
+            phi = builder.phi(ir.IntType(64), 'iftmp')
+            phi.add_incoming(then_val, then_block)
+            phi.add_incoming(else_val, else_block)
+            return phi
         else:
             perror(f"User-defined resolution not implemented {expression}")
 
 
-@builtin_defn
+@builtin_definition
 class CompileDefinition(Definition):
     symbol = 'compile'
     param_names = 'file_dest'
@@ -125,26 +158,34 @@ class CompileDefinition(Definition):
         target = llvm.Target.from_default_triple()
         target_machine = target.create_target_machine()
         module.triple = target_machine.triple
-        module.data_layout = target_machine.target_data
+        module.data_layout = target_machine.target_data # type: ignore
 
-        func = ir.Function(module, ir.FunctionType(ir.VoidType(), []), name="main")
+        func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
         _define_print_integer(module)
         _compile_expression(lhs, {}, module, builder, True)
-        builder.ret_void()
+        builder.ret(ir.Constant(ir.IntType(64), 0))
 
         if (path := file_dest.try_get_property('string')) is None:
             perror(f'compile destination must be a string, got {file_dest}')
+        path_str = path.associated_value
 
         # Output compiled binary file
         llvm_ir = str(module)
         llvm_mod = llvm.parse_assembly(llvm_ir)
         llvm_mod.verify()
 
-        if not path.associated_value.endswith('.o'):
-            perror(f'compile destination must end with .o, got {file_dest}')
+        if not (path_str.endswith('.obj') or path_str.endswith('.out')):
+            perror(f'compile destination must end with .obj or .out, got {file_dest}')
 
-        with open(path.associated_value, 'wb') as f:
+        obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
+        with open(obj_path_str, 'wb') as f:
             f.write(target_machine.emit_object(llvm_mod))
+        if path_str.endswith('.out'):
+            import subprocess
+            import os
+            subprocess.run(['clang', obj_path_str, '-o', path_str])
+            # clean up the object file
+            os.remove(obj_path_str)
 
         return lhs

@@ -1,11 +1,10 @@
 import inspect
 import sys
 import os
-import ast
 from typing import Any, Callable, NoReturn
 from functools import wraps
 
-from constants import Definition, Scope, Expression, Property, Token, expand_property
+from constants import Definition, Scope, Expression, Property, Token
 
 __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
@@ -17,8 +16,16 @@ def perror(*msg) -> NoReturn:
 def pwarning(*msg):
     print("Warning:", *msg, file=sys.stderr)
 
+def remove_property(properties: list['Property'], property_name: str, reverse: bool=False) -> bool:
+    seq = reversed(range(len(properties))) if reverse else range(len(properties))
+    for i in seq:
+        if properties[i].property == property_name:
+            properties.pop(i)
+            return True
+    return False
 
-def builtin_defn(defn_class):
+
+def build_defn_instance(defn_class) -> Definition:
     symbol: str = defn_class.symbol
     file = inspect.getfile(defn_class)
     _, row = inspect.getsourcelines(defn_class)
@@ -35,10 +42,12 @@ def builtin_defn(defn_class):
                                       for p_name in defn_class.property_names]
     else:
         properties = []
-
-    global_definitions.setdefault(symbol, []).append(
-        defn_class(symbol, properties, is_compound, params, 
+    return defn_class(symbol, properties, is_compound, params, 
                    Expression(Token('body', file, row, 0), []))
+
+def builtin_definition(defn_class):
+    global_definitions.setdefault(defn_class.symbol, []).append(
+        build_defn_instance(defn_class)
     )
 
 def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
@@ -50,42 +59,15 @@ def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression
         return func(self, lhs, args[0], scope)
     return apply
 
-# Utility to find all classes decorated with @builtin_defn
-class DecoratedDefinitionVisitor(ast.NodeVisitor):
-    def __init__(self, decorator_name):
-        self.decorator_name = decorator_name
-        self.decorated_defs: list[ast.ClassDef] = []
-
-    def visit_ClassDef(self, node):
-        self._check_decorators(node)
-        # Ensure we visit nested functions/classes
-        self.generic_visit(node)
-
-    def _check_decorators(self, node: ast.ClassDef):
-        for decorator in node.decorator_list:
-            # Check for simple decorators like @my_decorator
-            if isinstance(decorator, ast.Name) and decorator.id == self.decorator_name:
-                self.decorated_defs.append(node)
-                break
-            # Check for decorators with arguments like @my_decorator(arg=1)
-            elif isinstance(decorator, ast.Call):
-                if isinstance(decorator.func, ast.Name) and decorator.func.id == self.decorator_name:
-                    self.decorated_defs.append(node)
-                    break
-
-
 # Definitions begin below
 
-@builtin_defn
+@builtin_definition
 class AssignDefinition(Definition):
     symbol = 'assign'
     param_names = ['rval']
+    property_names = ['identifier']
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if lhs.try_get_property('identifier') is None:
-            pwarning(f"assigning to non-identifier {lhs}")
-            return rhs
-        
         if (expr := scope.var_lookup(lhs.symbol.s)) is None:
             expr = Expression(lhs.symbol, [
                 p.copy() for p in lhs.properties if p.property.s != 'identifier'
@@ -104,7 +86,7 @@ class AssignDefinition(Definition):
                     val.compound_properties = p.compound_properties
         return rhs
     
-@builtin_defn
+@builtin_definition
 class AssertDefinition(Definition):
     symbol = 'assert'
     param_names = ['assertion']
@@ -116,7 +98,7 @@ class AssertDefinition(Definition):
             perror(f"assertion failed {rhs}")
         return lhs
     
-@builtin_defn
+@builtin_definition
 class ArithmeticAddDefinition(Definition):
     symbol = '+'
     param_names = ['operand']
@@ -133,7 +115,7 @@ class ArithmeticAddDefinition(Definition):
         ]
         return Expression(lhs.symbol.create_renamed('+'), res_properties)
 
-@builtin_defn
+@builtin_definition
 class ArithmeticEqualDefinition(Definition):
     symbol = '=='
     param_names = ['operand']
@@ -147,7 +129,7 @@ class ArithmeticEqualDefinition(Definition):
             Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
         ])    
 
-@builtin_defn
+@builtin_definition
 class ArithmeticLessThanDefinition(Definition):
     symbol = '<'
     param_names = ['operand']
@@ -161,28 +143,69 @@ class ArithmeticLessThanDefinition(Definition):
             Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
         ])
 
+# Control flow
+
+@builtin_definition
+class ControlElseDefinition(Definition):
+    symbol = 'else'
+    param_names = ['false_branch']
+    property_names = ['integer']
+    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+        ival = lhs.try_get_property('integer')
+        assert ival is not None
+        if ival.associated_value == 0:
+            from main import resolve_expr
+            res = lhs
+            for expr in body:
+                res = resolve_expr(expr, scope)
+            return res
+        else:
+            # pop all properties until 'then' or empty
+            properties = lhs.properties.copy()
+            while len(properties) > 0 and properties[-1].property.s != 'then':
+                properties.pop()
+            if len(properties) == 0:
+                return lhs
+            from main import resolve_expr
+            return resolve_expr(Expression(lhs.symbol, properties), scope)
+
+@builtin_definition
+class ControlThenDefinition(Definition):
+    symbol = 'then'
+    param_names = ['true_branch']
+    property_names = ['integer']
+    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+        ival = lhs.try_get_property('integer')
+        assert ival is not None
+        if ival.associated_value != 0:
+            from main import resolve_expr
+            res = lhs
+            for expr in body:
+                res = resolve_expr(expr, scope)
+            return res
+        else:
+            return lhs
 
 # Misc.
 
-@builtin_defn
+@builtin_definition
 class DeclareDefinition(Definition):
     symbol = 'declare'
+    property_names = ['identifier']
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        if lhs.try_get_property('identifier') is None:
-            pwarning(f"declaring non-identifier {lhs}")
         scope.local_vars[lhs.symbol.s] = Expression(lhs.symbol, [
             p.copy() for p in lhs.properties if p.property != 'identifier'
         ])
         return lhs
     
-@builtin_defn
+@builtin_definition
 class DoDefinition(Definition):
     symbol = 'do'
     param_names = ['body']
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         return lhs
     
-@builtin_defn
+@builtin_definition
 class FieldGetDefinition(Definition):
     symbol = 'field_get'
     param_names = ['field_name_symbol']
@@ -196,7 +219,7 @@ class FieldGetDefinition(Definition):
             perror(f"{lhs} has no field {rhs}")
         return val.associated_value[field]
 
-@builtin_defn
+@builtin_definition
 class FieldSetDefinition(Definition):
     symbol = 'field_set'
     param_names = ['field']
@@ -212,7 +235,7 @@ class FieldSetDefinition(Definition):
             val.associated_value[expr.symbol] = expr
         return lhs
 
-@builtin_defn
+@builtin_definition
 class IdentifierDefinition(Definition):
     symbol = 'identifier'
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
@@ -220,7 +243,7 @@ class IdentifierDefinition(Definition):
             perror(f"unable to resolve identifier {lhs}")
         return val
     
-@builtin_defn
+@builtin_definition
 class ImportPythonDefinition(Definition):
     symbol = 'import'
     property_names = ['string', 'python']
@@ -228,7 +251,6 @@ class ImportPythonDefinition(Definition):
         path = lhs.try_get_property('string')
         assert path is not None
         # Load in the python file
-        print(lhs.symbol.file, path.associated_value)
         path_relative = os.path.join(os.path.dirname(lhs.symbol.file), path.associated_value)
         path_library = path.associated_value
         if os.path.exists(path_relative):
@@ -239,10 +261,6 @@ class ImportPythonDefinition(Definition):
             perror(f'unable to resolve path {path.associated_value}')
         
         ## TODO make this safe
-        # with open(path_str, 'r') as f:
-        #     tree = ast.parse(f.read(), filename=path_str)
-        # visitor = DecoratedDefinitionVisitor('class_defn')
-        # visitor.visit(tree)
         with open(path_str, 'r') as f:
             content = f.read()
         exec(content, globals=globals())
@@ -251,33 +269,33 @@ class ImportPythonDefinition(Definition):
 # List operators
 
 def create_list(anchor: Token, value: list[Expression]) -> Expression:
-    res_properties = expand_property(anchor, 'list')
+    res_properties = [Property(anchor.create_renamed('list'))]
     res_properties[0].is_association = True
     res_properties[0].associated_value = value
     res = Expression(anchor, res_properties)
     return res
 
-@builtin_defn
+@builtin_definition
 class ListAppendDefinition(Definition):
     symbol = 'append'
-    property_names = ['appendable', 'collection']
+    property_names = ['list']
     param_names = ['item']
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        dst = lhs.try_get_property('collection')
+        dst = lhs.try_get_property('list')
         assert dst is not None
         dst.is_association = True
         dst.associated_value = dst.associated_value or []
         dst.associated_value.append(rhs)
         return rhs
     
-@builtin_defn
+@builtin_definition
 class ListEachDefinition(Definition):
     symbol = 'each'
-    property_names = ['iterable', 'collection']
+    property_names = ['list']
     param_names = ['prev_placeholder', 'body']
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        iterable = lhs.try_get_property('collection')
+        iterable = lhs.try_get_property('list')
         assert iterable is not None 
         if iterable.associated_value is None:
             return lhs
@@ -290,14 +308,14 @@ class ListEachDefinition(Definition):
             res.append(resolve_expr(body, local_scope))
         return create_list(lhs.symbol, res)
 
-@builtin_defn
+@builtin_definition
 class ListIndexDefinition(Definition):
     symbol = 'index'
-    property_names = ['indexable', 'collection']
+    property_names = ['list']
     param_names = ['index']
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        dst = lhs.try_get_property('collection')
+        dst = lhs.try_get_property('list')
         assert dst is not None
         if (isrc := rhs.try_get_property('integer')) is None:
             perror(f'unable to index {lhs} with {rhs}')
@@ -308,7 +326,7 @@ class ListIndexDefinition(Definition):
 
 # Logical operators
 
-@builtin_defn
+@builtin_definition
 class LogicalNotDefinition(Definition):
     symbol = 'logical_not'
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
@@ -322,7 +340,7 @@ class LogicalNotDefinition(Definition):
             properties = [updated_ival if property == ival else property for property in lhs.properties]
             return Expression(lhs.symbol, properties)
     
-@builtin_defn
+@builtin_definition
 class PropertiesDefinition(Definition):
     symbol = 'properties'
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
@@ -332,3 +350,24 @@ class PropertiesDefinition(Definition):
                 Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
             ]))
         return create_list(lhs.symbol, res_list)
+
+@builtin_definition
+class ResolutionDefinition(Definition):
+    symbol = 'resolution'
+    param_names = ['body']
+    @binary_apply
+    def apply(self, lhs: Expression, body: Expression, scope: Scope) -> Expression:
+        *placeholder_properties, property = lhs.properties
+        # remove 'identifier' from properties and parameters
+        remove_property(placeholder_properties, 'identifier')
+        parameters = [Expression(e.symbol, e.properties) for e in property.compound_properties]
+        for e in parameters:
+            remove_property(e.properties, 'identifier')
+
+        # add to definitions
+        from main import UserDefinedDefinition
+        scope.local_defns.setdefault(property.property.s, []).append(
+            UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
+                       property.is_compound, property.compound_properties, body)
+        )
+        return lhs
