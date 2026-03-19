@@ -9,9 +9,12 @@ from constants import Definition, Scope, Expression, Property, Token
 __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
 
+class CompileError(Exception):
+    pass
+
 def perror(*msg) -> NoReturn:
     print("Error:", *msg, file=sys.stderr)
-    sys.exit(1)
+    raise CompileError()
 
 def pwarning(*msg):
     print("Warning:", *msg, file=sys.stderr)
@@ -154,10 +157,10 @@ class ControlElseDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value == 0:
-            from main import resolve_expr
+            from main import resolve_last_property
             res = lhs
             for expr in body:
-                res = resolve_expr(expr, scope)
+                res = resolve_last_property(expr, scope)
             return res
         else:
             # pop all properties until 'then' or empty
@@ -166,8 +169,8 @@ class ControlElseDefinition(Definition):
                 properties.pop()
             if len(properties) == 0:
                 return lhs
-            from main import resolve_expr
-            return resolve_expr(Expression(lhs.symbol, properties), scope)
+            from main import resolve_last_property
+            return resolve_last_property(Expression(lhs.symbol, properties), scope)
 
 @builtin_definition
 class ControlThenDefinition(Definition):
@@ -178,10 +181,10 @@ class ControlThenDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value != 0:
-            from main import resolve_expr
+            from main import resolve_last_property
             res = lhs
             for expr in body:
-                res = resolve_expr(expr, scope)
+                res = resolve_last_property(expr, scope)
             return res
         else:
             return lhs
@@ -300,12 +303,13 @@ class ListEachDefinition(Definition):
         if iterable.associated_value is None:
             return lhs
         item_placeholder, body = args
+        from main import resolve_expression, resolve_last_property
         res: list[Expression] = []
         for item in iterable.associated_value:
             # item is an Expression
-            from main import resolve_expr
             local_scope = Scope({item_placeholder.symbol.s: item}, parent_scope=scope)
-            res.append(resolve_expr(body, local_scope))
+            local_body = resolve_expression(body, local_scope)
+            res.append(resolve_last_property(local_body, local_scope))
         return create_list(lhs.symbol, res)
 
 @builtin_definition

@@ -1,5 +1,5 @@
 from constants import Property, Expression, Definition, Scope
-from definitions import global_definitions, pwarning, builtin_definition, binary_apply
+from definitions import global_definitions, pwarning, CompileError
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
@@ -10,7 +10,7 @@ class UserDefinedDefinition(Definition):
         for arg, param in zip(args, self.params):
             new_varscope[param.symbol.s] = arg
         new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
-        return resolve_expr(self.body, new_scope)
+        return resolve_last_property(self.body, new_scope)
 
 
 # Begin function definitions
@@ -39,25 +39,18 @@ def resolve_vars(property: Property, scope: Scope, nested=False) -> Property:
     property.compound_properties = expressions
     return property
 
-def resolve_expr(expr: Expression, scope: Scope) -> Expression:
+def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     '''
     resolves the last property of expr
     '''
     if len(expr.properties) == 0:
+        pwarning(f"no properties to resolve for {expr}")
         return expr
-    properties = expr.properties.copy()
+    *properties, prop = expr.properties
 
-    # if prop is '.' we resolve with indirection
-    # if prop is ';' or ',' we ignore the symbol
-    prop = properties.pop()
-    while len(properties) > 0 and prop.property.s in [';', ',']:
-        prop = properties.pop()
-    if prop.property == '.':
-        return resolve_expr(Expression(expr.symbol, properties), scope)
-    if len(properties) > 0 and properties[-1].property == '.':
-        expr = resolve_expr(Expression(expr.symbol, properties[:-1]), scope)
-        properties = expr.properties
-    prop = resolve_vars(prop, scope)
+    # We should have handled resolution markers, var resolution and
+    # delimiter markers in resolve_expression
+    assert prop not in ['.', ';', ',']
     property_set: set[str] = set(p.property.s for p in properties)
 
     matches = scope.defn_lookup(prop.property.s)
@@ -83,16 +76,10 @@ def resolve_expr(expr: Expression, scope: Scope) -> Expression:
     
     if prop.start_char == '{':
         # resolve all
-        args = [resolve_expr(local_expr, scope) for local_expr in prop.compound_properties]
+        args = [resolve_last_property(resolve_expression(local_expr, scope), scope) for local_expr in prop.compound_properties]
     else:
         # resolve all that end in '.' or ';'
-        args = []
-        for local_expr in prop.compound_properties:
-            if local_expr.properties[-1].property.s in ['.', ';']:
-                local_expr = Expression(local_expr.symbol, local_expr.properties[:-1])
-                args.append(resolve_expr(local_expr, scope))
-            else:
-                args.append(local_expr)
+        args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
 
     # apply the best match
     best_match = matches[0]
@@ -100,6 +87,20 @@ def resolve_expr(expr: Expression, scope: Scope) -> Expression:
         Expression(expr.symbol, properties), 
         args, scope
     )
+
+def resolve_expression(expr: Expression, scope: Scope) -> Expression:
+    '''
+    resolves all properties marked for resolution in expr
+    '''
+    expr_copy = Expression(expr.symbol, [])
+    for prop in expr.properties:
+        if prop.property.s in ['.', ';']:
+            expr_copy = resolve_last_property(expr_copy, scope)
+            expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
+            assert not any(p.property.s in ['.', ';'] for p in expr_copy.properties)
+        elif prop.property.s not in [',']:
+            expr_copy.properties.append(resolve_vars(prop, scope))
+    return expr_copy
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
@@ -111,7 +112,9 @@ if __name__ == "__main__":
     tokenize(file)
     built, i = build_tree(tokenize(file))
     scope = Scope(local_defns=global_definitions)
-    for expr in built:
-        if expr.properties[-1].property.s in ['.', ';']:
-            expr = Expression(expr.symbol, expr.properties[:-1])
-            resolve_expr(expr, scope)
+    try:
+        for expr in built:
+            resolve_expression(expr, scope)
+    except CompileError as e:
+        import sys
+        sys.exit(1)
