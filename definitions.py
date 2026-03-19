@@ -124,10 +124,10 @@ class ArithmeticEqualDefinition(Definition):
     param_names = ['operand']
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if (ival := rhs.try_get_property('integer')) is None or \
-            (idst := lhs.try_get_property('integer')) is None:
-            perror(f"unable to check {rhs} == {lhs}")
-        res = idst.associated_value == ival.associated_value
+        lval = lhs.try_get_property('integer')
+        rval = rhs.try_get_property('integer')
+        assert lval is not None and rval is not None
+        res = lval.associated_value == rval.associated_value
         return Expression(lhs.symbol.create_renamed('=='), [
             Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
         ])    

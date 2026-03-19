@@ -1,0 +1,17 @@
+/* This is the first line that should be printed;
+*/
+/* This is the second line that should be printed;
+*/
+
+"lib/printing.py" python import;
+"lib/io.py" python import;
+
+y file declare;
+y.open("tests/fileread.lang");
+
+x assign(y.read(";"););
+z assign(y.read(";"););
+x.print;
+z.print;
+
+y.close;

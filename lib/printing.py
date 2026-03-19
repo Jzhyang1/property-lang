@@ -1,5 +1,5 @@
 if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token, expand_property
+    from constants import Definition, Scope, Expression, Property, Token
     from definitions import builtin_definition, binary_apply, pwarning, perror
 
 
