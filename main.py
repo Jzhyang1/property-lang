@@ -48,9 +48,14 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         return expr
     *properties, prop = expr.properties
 
-    # We should have handled resolution markers, var resolution and
-    # delimiter markers in resolve_expression
-    assert prop not in ['.', ';', ',']
+    # We need to handle backward resolution
+    if len(properties) > 0 and properties[-1].property.s in ['.', ';']:
+        expr = resolve_last_property(Expression(expr.symbol, properties[:-1]), scope)
+        properties = expr.properties.copy()
+    if prop.property.s in ['.', ';']:
+        expr = resolve_last_property(Expression(expr.symbol, properties), scope)
+        *properties, prop = expr.properties
+
     property_set: set[str] = set(p.property.s for p in properties)
 
     matches = scope.defn_lookup(prop.property.s)
@@ -75,10 +80,11 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         return expr
     
     if prop.start_char == '{':
-        # resolve all
-        args = [resolve_last_property(resolve_expression(local_expr, scope), scope) for local_expr in prop.compound_properties]
+        # backward resolve
+        args = [resolve_last_property(local_expr, scope) if local_expr.properties[-1] in ['.', ';'] else local_expr
+                for local_expr in prop.compound_properties]
     else:
-        # resolve all that end in '.' or ';'
+        # forward resolve
         args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
 
     # apply the best match

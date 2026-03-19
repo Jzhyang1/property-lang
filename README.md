@@ -37,8 +37,10 @@ enclosed in one of the following:
 parenthesis (`(...)`), brackets (`[...]`), or braces (`{...}`)
 
 - Parenthesis (`(...)`) will accept the expressions inside as-is
-- Brackets (`[...]`) will resolve all variables within
-- Braces (`{...}`) will resolve all variables within and resolve the last property of each expression
+- Brackets (`[...]`) will accept the expressions inside as-is
+- Braces (`{...}`) will treat all expressions inside as right-to-left resolution 
+  (this is used primarily for resolution definitions; rule of thumb is that
+  there should be only 1 expression inside braces)
 
 Has the implicit property `compound`.
 

@@ -296,20 +296,24 @@ class ListAppendDefinition(Definition):
 class ListEachDefinition(Definition):
     symbol = 'each'
     property_names = ['list']
-    param_names = ['prev_placeholder', 'body']
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    param_names = ['callback_property']
+    @binary_apply
+    def apply(self, lhs: Expression, callback: Expression, scope: Scope) -> Expression:
         iterable = lhs.try_get_property('list')
         assert iterable is not None 
         if iterable.associated_value is None:
             return lhs
-        item_placeholder, body = args
+        if (pval := callback.try_get_property('property')) is None:
+            perror(f'`each` requires a property argument, got {callback}')
+        prop = pval.associated_value
+        assert prop is not None
         from main import resolve_expression, resolve_last_property
         res: list[Expression] = []
         for item in iterable.associated_value:
             # item is an Expression
-            local_scope = Scope({item_placeholder.symbol.s: item}, parent_scope=scope)
-            local_body = resolve_expression(body, local_scope)
-            res.append(resolve_last_property(local_body, local_scope))
+            expr = Expression(item.symbol, 
+                              item.properties + [prop])
+            res.append(resolve_last_property(expr, scope))
         return create_list(lhs.symbol, res)
 
 @builtin_definition
@@ -361,17 +365,19 @@ class ResolutionDefinition(Definition):
     param_names = ['body']
     @binary_apply
     def apply(self, lhs: Expression, body: Expression, scope: Scope) -> Expression:
-        *placeholder_properties, property = lhs.properties
+        *placeholder_properties, p = lhs.properties
         # remove 'identifier' from properties and parameters
         remove_property(placeholder_properties, 'identifier')
-        parameters = [Expression(e.symbol, e.properties) for e in property.compound_properties]
+        parameters = [Expression(e.symbol, e.properties) for e in p.compound_properties]
         for e in parameters:
             remove_property(e.properties, 'identifier')
 
         # add to definitions
         from main import UserDefinedDefinition
-        scope.local_defns.setdefault(property.property.s, []).append(
+        scope.local_defns.setdefault(p.property.s, []).append(
             UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
-                       property.is_compound, property.compound_properties, body)
+                       p.is_compound, p.compound_properties, body)
         )
-        return lhs
+        return Expression(p.property, [
+            Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
+        ])
