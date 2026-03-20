@@ -1,5 +1,5 @@
-"lib/compile.py" python import;
-"lib/printing.py" python import;
+"lib/compile.py" python definition import;
+"lib/printing.py" python definition import;
 
 code do(12 print.) compile("print12.out");
 code do(1 then(5 print.)else(99 print.).) compile("print5.out");

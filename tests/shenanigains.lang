@@ -3,7 +3,7 @@
  * 2
  * 3
  */
-"lib/printing.py" python import;
+"lib/printing.py" python definition import;
 
 y assign(x integer logical_not.+(x assign(2);););
 x.print;

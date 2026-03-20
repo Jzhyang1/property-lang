@@ -3,8 +3,8 @@
 /* This is the second line that should be printed;
 */
 
-"lib/printing.py" python import;
-"lib/io.py" python import;
+"lib/printing.py" python definition import;
+"lib/io.py" python definition import;
 
 y file declare;
 y.open("tests/fileread.lang");

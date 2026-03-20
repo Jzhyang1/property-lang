@@ -27,6 +27,26 @@ def remove_property(properties: list['Property'], property_name: str, reverse: b
             return True
     return False
 
+def expression_to_associated_value(expr: Expression) -> Any:
+    if (ival := expr.try_get_property('integer')) is not None:
+        return ival.associated_value
+    elif (sval := expr.try_get_property('string')) is not None:
+        return sval.associated_value
+    else:
+        perror(f'unable to convert {expr} to associated value')
+
+def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expression:
+    if isinstance(value, int):
+        return Expression(anchor.create_renamed(name or 'integer'), [
+            Property(anchor.create_renamed('integer'), is_association=True, associated_value=value)
+        ])
+    elif isinstance(value, str):
+        return Expression(anchor.create_renamed(name or 'string'), [
+            Property(anchor.create_renamed('string'), is_association=True, associated_value=value)
+        ])
+    else:
+        perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
+
 
 def build_defn_instance(defn_class) -> Definition:
     symbol: str = defn_class.symbol
@@ -128,9 +148,7 @@ class ArithmeticEqualDefinition(Definition):
         rval = rhs.try_get_property('integer')
         assert lval is not None and rval is not None
         res = lval.associated_value == rval.associated_value
-        return Expression(lhs.symbol.create_renamed('=='), [
-            Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
-        ])    
+        return associated_value_to_expression(lhs.symbol, res, '==')
 
 @builtin_definition
 class ArithmeticLessThanDefinition(Definition):
@@ -142,9 +160,7 @@ class ArithmeticLessThanDefinition(Definition):
             (idst := lhs.try_get_property('integer')) is None:
             perror(f"unable to check {rhs} < {lhs}")
         res = idst.associated_value < ival.associated_value
-        return Expression(lhs.symbol.create_renamed('<'), [
-            Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
-        ])
+        return associated_value_to_expression(lhs.symbol, res, '<')
 
 # Control flow
 
@@ -246,29 +262,87 @@ class IdentifierDefinition(Definition):
             perror(f"unable to resolve identifier {lhs}")
         return val
     
+def find_import_file(path_anchor: str, path: str):
+    path_relative = os.path.join(os.path.dirname(path_anchor), path)
+    path_library = path
+    if os.path.exists(path_relative):
+        return path_relative
+    elif os.path.exists(path_library):
+        return path_library
+    else:
+        perror(f'unable to resolve path {path}')
+
+class ImportedPythonDefinition(Definition):
+    def __init__(self, func: Callable, source_file: str):
+        symbol = func.__name__
+        # Get the parameters
+        sig = inspect.signature(func)
+        param_names = list(sig.parameters.keys())
+        placeholder_symb, *param_names = param_names
+        def token(s: str):
+            return Token(s, source_file, 0, 0) # TODO better row accuracy
+        super().__init__(placeholder_symb, [], 
+                         len(param_names) > 0, [Expression(token(s), []) for s in param_names], 
+                         Expression(token('body'), []))
+        self.func = func
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+        self_value = expression_to_associated_value(lhs)
+        arg_values = [expression_to_associated_value(arg) for arg in args]
+        res = self.func(self_value, *arg_values)
+        return associated_value_to_expression(lhs.symbol, res)
+
+def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scope: Scope):
+    path_str = find_import_file(path_anchor, path)
+    empty_globals = {}
+    with open(path_str, 'r') as f:
+        content = f.read()
+    # TODO make this safe
+    exec(content, globals=empty_globals)
+    res = {}
+    for symbol in imports:
+        if symbol not in empty_globals:
+            pwarning(f"unable to import {symbol} from {path_str}")
+            continue
+        defn_impl = empty_globals[symbol]
+        if callable(defn_impl):
+            scope.local_defns.setdefault(symbol, []).append(ImportedPythonDefinition(defn_impl, path_str))
+        else:
+            _, start_line = inspect.getsourcelines(defn_impl)
+            scope.local_vars[symbol] = associated_value_to_expression(
+                Token(symbol, path_str, start_line, 0), defn_impl, symbol)
+    return res
+        
+
+@builtin_definition
+class ImportRawPythonDefinition(Definition):
+    symbol = 'import'
+    property_names = ['string', 'python']
+    param_names = ['definitions...']
+    # We need to name which Python variables/functions to import.
+    # Functions are imported as `foo(bar, baz) == bar foo(baz)` and no type safety
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+        path = lhs.try_get_property('string')
+        assert path is not None
+        # Load in the python file by executing it in an empty global scope,
+        # then we will copy over the specified variables/functions into `scope`.
+        imports = [defn.symbol.s for defn in args]
+        import_raw_python_file(lhs.symbol.file, path.associated_value, imports, scope)
+        return lhs
+
 @builtin_definition
 class ImportPythonDefinition(Definition):
     symbol = 'import'
-    property_names = ['string', 'python']
+    property_names = ['string', 'python', 'definition']
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         path = lhs.try_get_property('string')
         assert path is not None
         # Load in the python file
-        path_relative = os.path.join(os.path.dirname(lhs.symbol.file), path.associated_value)
-        path_library = path.associated_value
-        if os.path.exists(path_relative):
-            path_str = path_relative
-        elif os.path.exists(path_library):
-            path_str = path_library
-        else:
-            perror(f'unable to resolve path {path.associated_value}')
-        
+        path_str = find_import_file(lhs.symbol.file, path.associated_value)
         ## TODO make this safe
         with open(path_str, 'r') as f:
             content = f.read()
         exec(content, globals=globals())
         return lhs
-
 # List operators
 
 def create_list(anchor: Token, value: list[Expression]) -> Expression:

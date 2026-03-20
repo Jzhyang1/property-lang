@@ -1,0 +1,5 @@
+"lib/printing.py" python definition import;
+"tests/not_lib.py" python import(factorial);
+
+7 factorial.print;
+12 factorial.print;
