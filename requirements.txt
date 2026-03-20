@@ -1,1 +1,2 @@
 llvmlite == 0.46.0
+litellm  == 1.82.4

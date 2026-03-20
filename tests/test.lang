@@ -3,12 +3,12 @@
  * False
  * 3
  */
-"lib/printing.py" python import;
+"lib/printing.py" python definition import;
 
 x list declare;
 x.append(2);
 x.append(3);
-z assign(x.each(n increment resolution{n.+(1)};);); /* TODO why is the semicolon required after each(...)? */
+z assign(x.each(n increment resolution{n.+(1)};););
 y assign(z.index(1). <(4););
 y.print;
 z.index(0).print;
