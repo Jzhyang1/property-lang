@@ -43,10 +43,13 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     '''
     resolves the last property of expr
     '''
-    if len(expr.properties) == 0:
+    properties = expr.properties
+    while len(properties) > 0 and properties[-1].property.s in [',']:
+        properties = properties[:-1]
+    if len(properties) == 0:
         pwarning(f"no properties to resolve for {expr}")
         return expr
-    *properties, prop = expr.properties
+    *properties, prop = properties
 
     # We need to handle backward resolution
     if len(properties) > 0 and properties[-1].property.s in ['.', ';']:

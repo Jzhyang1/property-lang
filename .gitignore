@@ -1,4 +1,6 @@
 .venv
 build
+cache
 *.pyc
 *.o
+*.log
