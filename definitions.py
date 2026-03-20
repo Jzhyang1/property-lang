@@ -297,7 +297,8 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
     with open(path_str, 'r') as f:
         content = f.read()
     # TODO make this safe
-    exec(content, globals=empty_globals)
+    code = compile(content, path_str, 'exec')
+    exec(code, globals=empty_globals)
     res = {}
     for symbol in imports:
         if symbol not in empty_globals:
@@ -341,7 +342,8 @@ class ImportPythonDefinition(Definition):
         ## TODO make this safe
         with open(path_str, 'r') as f:
             content = f.read()
-        exec(content, globals=globals())
+        code = compile(content, path_str, 'exec')
+        exec(code, globals=globals())
         return lhs
 # List operators
 

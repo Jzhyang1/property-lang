@@ -32,6 +32,7 @@ def generate_file(output_file: str, prompt: str) -> None:
     
     # There is still a chance that the model returned content in markdown
     content = content.lstrip('```python').rstrip('```')
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, 'w') as f:
         f.write(content)
 
