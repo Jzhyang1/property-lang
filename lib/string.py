@@ -6,6 +6,7 @@ if not '__LANG__' in globals():
 @builtin_definition
 class StringEqualDefinition(Definition):
     symbol = '=='
+    param_names = ['rhs']
     property_names = ['string']
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
