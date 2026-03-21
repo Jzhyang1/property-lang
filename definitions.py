@@ -47,11 +47,16 @@ def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expr
     else:
         perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
 
+def get_defn_file(defn_class) -> str:
+    return inspect.getfile(defn_class) or "<imported file>"
+def get_defn_line(defn_class) -> int:
+    try:            return inspect.getsourcelines(defn_class)[1]
+    except OSError: return 0
 
 def build_defn_instance(defn_class) -> Definition:
     symbol: str = defn_class.symbol
-    file = inspect.getfile(defn_class)
-    _, row = inspect.getsourcelines(defn_class)
+    file = get_defn_file(defn_class)
+    row = get_defn_line(defn_class)
     if hasattr(defn_class, 'param_names'):
         is_compound = True
         params = [Expression(Token(param_name, file, row, 0), []) 
@@ -308,7 +313,7 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
         if callable(defn_impl):
             scope.local_defns.setdefault(symbol, []).append(ImportedPythonDefinition(defn_impl, path_str))
         else:
-            _, start_line = inspect.getsourcelines(defn_impl)
+            start_line = get_defn_line(defn_impl)
             scope.local_vars[symbol] = associated_value_to_expression(
                 Token(symbol, path_str, start_line, 0), defn_impl, symbol)
     return res
@@ -345,6 +350,7 @@ class ImportPythonDefinition(Definition):
         code = compile(content, path_str, 'exec')
         exec(code, globals())
         return lhs
+    
 # List operators
 
 def create_list(anchor: Token, value: list[Expression]) -> Expression:
