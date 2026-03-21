@@ -96,7 +96,8 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
             elif symbol.s.startswith('"') and symbol.s.endswith('"'):
                 properties.append(Property(
                     symbol.create_renamed('string'),
-                    is_association=True, associated_value=symbol.s.strip('"')
+                    # TODO eval is unsafe
+                    is_association=True, associated_value=eval(symbol.s)
                 ))
             elif symbol.s.isalnum():
                 properties.append(Property(symbol.create_renamed('identifier')))
