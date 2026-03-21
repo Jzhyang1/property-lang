@@ -24,7 +24,7 @@ class PrintStringDefinition(Definition):
         return lhs
     
 @builtin_definition
-class PrintStringDefinition(Definition):
+class PrintListDefinition(Definition):
     symbol = 'print'
     property_names = ['list']
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
