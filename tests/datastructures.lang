@@ -1,0 +1,7 @@
+"lib/print.py" python definition import;
+"lib/list.py" python definition import;
+
+y list[1,2,3,4] declare;
+
+y.at(0).print;
+y.at[1] print;

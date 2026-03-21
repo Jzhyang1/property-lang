@@ -4,13 +4,17 @@ from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: 'Scope') -> Expression:
+        scope = scope.parent or scope
         new_varscope = {
             self.placeholder_symb: expr
         }
         for arg, param in zip(args, self.params):
             new_varscope[param.symbol.s] = arg
         new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
-        return resolve_last_property(self.body, new_scope)
+        last = expr
+        for local_expr in self.body:
+            last = resolve_last_property(local_expr, new_scope)
+        return last
 
 
 # Begin function definitions
@@ -63,7 +67,7 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
 
     matches = scope.defn_lookup(prop.property.s)
     if matches is None:
-        pwarning(f"no matches found for property {prop} in symbol {expr.symbol}")
+        pwarning(f"no matches found for property {prop} in symbol {expr.symbol}", anchor=prop.property)
         return expr
     
     if prop.is_compound: # is compound
@@ -72,7 +76,7 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         matches = [m for m in matches if not m.is_compound] # filter for non-compound matches
     matches = [m for m in matches if all(p.property.s in property_set for p in m.properties)] # filter for matches that have all the other properties
     if len(matches) == 0:
-        pwarning(f"no matches found for property {prop} in symbol {expr.symbol} with properties {property_set}")
+        pwarning(f"no matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
         return expr
     
     # find the match with the most properties

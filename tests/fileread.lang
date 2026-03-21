@@ -3,7 +3,7 @@
 /* This is the second line that should be printed;
 */
 
-"lib/printing.py" python definition import;
+"lib/print.py" python definition import;
 "lib/io.py" python definition import;
 
 y file declare;

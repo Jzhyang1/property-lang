@@ -10,14 +10,13 @@ __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
 
 class CompileError(Exception):
-    pass
+    def __init__(self, *msg, anchor: Token|None = None):
+        header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}:"
+        super().__init__(header, *msg)
 
-def perror(*msg) -> NoReturn:
-    print("Error:", *msg, file=sys.stderr)
-    raise CompileError()
-
-def pwarning(*msg):
-    print("Warning:", *msg, file=sys.stderr)
+def pwarning(*msg, anchor:Token|None=None):
+    header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}:"
+    print(header, *msg, file=sys.stderr)
 
 def remove_property(properties: list['Property'], property_name: str, reverse: bool=False) -> bool:
     seq = reversed(range(len(properties))) if reverse else range(len(properties))
@@ -32,8 +31,10 @@ def expression_to_associated_value(expr: Expression) -> Any:
         return ival.associated_value
     elif (sval := expr.try_get_property('string')) is not None:
         return sval.associated_value
+    elif (lval := expr.try_get_property('list')) is not None:
+        return [expression_to_associated_value(e) for e in lval.associated_value]
     else:
-        perror(f'unable to convert {expr} to associated value')
+        raise CompileError(f'unable to convert {expr} to associated value')
 
 def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expression:
     if isinstance(value, int):
@@ -44,8 +45,14 @@ def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expr
         return Expression(anchor.create_renamed(name or 'string'), [
             Property(anchor.create_renamed('string'), is_association=True, associated_value=value)
         ])
+    elif isinstance(value, list):
+        return Expression(anchor.create_renamed(name or 'list'), [
+            Property(anchor.create_renamed('list'), is_association=True, associated_value=[
+                associated_value_to_expression(anchor, i) for i in value
+            ])
+        ])
     else:
-        perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
+        raise CompileError(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
 
 def get_defn_file(defn_class) -> str:
     return inspect.getfile(defn_class) or "<imported file>"
@@ -70,8 +77,7 @@ def build_defn_instance(defn_class) -> Definition:
                                       for p_name in defn_class.property_names]
     else:
         properties = []
-    return defn_class(symbol, properties, is_compound, params, 
-                   Expression(Token('body', file, row, 0), []))
+    return defn_class(symbol, properties, is_compound, params, [])
 
 def builtin_definition(defn_class):
     global_definitions.setdefault(defn_class.symbol, []).append(
@@ -123,50 +129,9 @@ class AssertDefinition(Definition):
         if (ival := rhs.try_get_property('integer')) is None:
             pwarning(f"assertion can not be applied to {rhs}")
         elif ival.associated_value == 0:
-            perror(f"assertion failed {rhs}")
+            raise CompileError(f"assertion failed {rhs}")
         return lhs
     
-@builtin_definition
-class ArithmeticAddDefinition(Definition):
-    symbol = '+'
-    param_names = ['operand']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if (ival := rhs.try_get_property('integer')) is None or \
-            (idst := lhs.try_get_property('integer')) is None:
-            perror(f"unable to add {rhs} to {lhs}")
-        ires = idst.copy()
-        ires.is_association = True
-        ires.associated_value += ival.associated_value
-        res_properties = [
-            ires if property == idst else property for property in lhs.properties
-        ]
-        return Expression(lhs.symbol.create_renamed('+'), res_properties)
-
-@builtin_definition
-class ArithmeticEqualDefinition(Definition):
-    symbol = '=='
-    param_names = ['operand']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        lval = lhs.try_get_property('integer')
-        rval = rhs.try_get_property('integer')
-        assert lval is not None and rval is not None
-        res = lval.associated_value == rval.associated_value
-        return associated_value_to_expression(lhs.symbol, res, '==')
-
-@builtin_definition
-class ArithmeticLessThanDefinition(Definition):
-    symbol = '<'
-    param_names = ['operand']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if (ival := rhs.try_get_property('integer')) is None or \
-            (idst := lhs.try_get_property('integer')) is None:
-            perror(f"unable to check {rhs} < {lhs}")
-        res = idst.associated_value < ival.associated_value
-        return associated_value_to_expression(lhs.symbol, res, '<')
-
 # Control flow
 
 @builtin_definition
@@ -223,6 +188,28 @@ class DeclareDefinition(Definition):
         return lhs
     
 @builtin_definition
+class DefinitionDefinition(Definition):
+    symbol = 'definition'
+    param_names = ['body']
+    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+        *placeholder_properties, p = lhs.properties
+        # remove 'identifier' from properties and parameters
+        remove_property(placeholder_properties, 'identifier')
+        parameters = [Expression(e.symbol, e.properties) for e in p.compound_properties]
+        for e in parameters:
+            remove_property(e.properties, 'identifier')
+
+        # add to definitions
+        from main import UserDefinedDefinition
+        scope.local_defns.setdefault(p.property.s, []).append(
+            UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
+                       p.is_compound, p.compound_properties, body)
+        )
+        return Expression(p.property, [
+            Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
+        ])
+    
+@builtin_definition
 class DoDefinition(Definition):
     symbol = 'do'
     param_names = ['body']
@@ -240,7 +227,7 @@ class FieldGetDefinition(Definition):
         assert val is not None
         field = rhs.symbol
         if field not in val.associated_value:
-            perror(f"{lhs} has no field {rhs}")
+            raise CompileError(f"{lhs} has no field {rhs}")
         return val.associated_value[field]
 
 @builtin_definition
@@ -264,7 +251,7 @@ class IdentifierDefinition(Definition):
     symbol = 'identifier'
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         if (val := scope.var_lookup(lhs.symbol.s)) is None:
-            perror(f"unable to resolve identifier {lhs}")
+            raise CompileError(f"unable to resolve identifier {lhs}")
         return val
     
 def find_import_file(path_anchor: str, path: str):
@@ -275,7 +262,7 @@ def find_import_file(path_anchor: str, path: str):
     elif os.path.exists(path_library):
         return path_library
     else:
-        perror(f'unable to resolve path {path}')
+        raise CompileError(f'unable to resolve path {path}')
 
 class ImportedPythonDefinition(Definition):
     def __init__(self, func: Callable, source_file: str):
@@ -287,8 +274,7 @@ class ImportedPythonDefinition(Definition):
         def token(s: str):
             return Token(s, source_file, 0, 0) # TODO better row accuracy
         super().__init__(placeholder_symb, [], 
-                         len(param_names) > 0, [Expression(token(s), []) for s in param_names], 
-                         Expression(token('body'), []))
+                         len(param_names) > 0, [Expression(token(s), []) for s in param_names], [])
         self.func = func
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         self_value = expression_to_associated_value(lhs)
@@ -386,7 +372,7 @@ class ListEachDefinition(Definition):
         if iterable.associated_value is None:
             return lhs
         if (pval := callback.try_get_property('property')) is None:
-            perror(f'`each` requires a property argument, got {callback}')
+            raise CompileError(f'`each` requires a property argument, got {callback}')
         prop = pval.associated_value
         assert prop is not None
         from main import resolve_expression, resolve_last_property
@@ -408,10 +394,10 @@ class ListIndexDefinition(Definition):
         dst = lhs.try_get_property('list')
         assert dst is not None
         if (isrc := rhs.try_get_property('integer')) is None:
-            perror(f'unable to index {lhs} with {rhs}')
+            raise CompileError(f'unable to index {lhs} with {rhs}')
         if not isinstance(dst.associated_value, list) or \
                 isrc.associated_value >= len(dst.associated_value):
-            perror(f'index out of bounds on {lhs} with {rhs}')
+            raise CompileError(f'index out of bounds on {lhs} with {rhs}')
         return dst.associated_value[isrc.associated_value]
 
 # Logical operators
@@ -440,26 +426,3 @@ class PropertiesDefinition(Definition):
                 Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
             ]))
         return create_list(lhs.symbol, res_list)
-
-@builtin_definition
-class ResolutionDefinition(Definition):
-    symbol = 'resolution'
-    param_names = ['body']
-    @binary_apply
-    def apply(self, lhs: Expression, body: Expression, scope: Scope) -> Expression:
-        *placeholder_properties, p = lhs.properties
-        # remove 'identifier' from properties and parameters
-        remove_property(placeholder_properties, 'identifier')
-        parameters = [Expression(e.symbol, e.properties) for e in p.compound_properties]
-        for e in parameters:
-            remove_property(e.properties, 'identifier')
-
-        # add to definitions
-        from main import UserDefinedDefinition
-        scope.local_defns.setdefault(p.property.s, []).append(
-            UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
-                       p.is_compound, p.compound_properties, body)
-        )
-        return Expression(p.property, [
-            Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
-        ])

@@ -104,10 +104,14 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
             else:
                 properties.append(Property(symbol.create_renamed('operator')))
         elif tokens[i].s in parentheses:
-            properties[-1].start_char = tokens[i].s
-            properties[-1].is_compound = True
+            prop = properties[-1]   # we modify the previous property
+            prop.start_char = tokens[i].s
+            prop.is_compound = True
             compound_tree, i = build_tree(tokens, i+1, parentheses[tokens[i].s])
-            properties[-1].compound_properties = compound_tree
+            prop.compound_properties = compound_tree
+            if prop.start_char == '[':
+                # '[]' is an alias for '().'
+                properties.append(Property(prop.property.create_renamed('.')))
         elif tokens[i].s in separators:
             properties.append(Property(tokens[i], False, []))
             tree.append(Expression(symbol, properties))

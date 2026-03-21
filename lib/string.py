@@ -1,6 +1,6 @@
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, perror
+    from definitions import builtin_definition, binary_apply, pwarning, CompileError
 
 
 @builtin_definition

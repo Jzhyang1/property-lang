@@ -2,7 +2,7 @@ import os
 from typing import Any
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, perror, import_raw_python_file, expression_to_associated_value
+    from definitions import builtin_definition, binary_apply, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
 
 
 class GeneratorError(Exception):
@@ -15,7 +15,7 @@ configuration: dict[str, Any] = {
 def generate_file(output_file: str, prompt: str) -> None:
     from litellm import completion, ModelResponse
     if 'messages' in configuration or 'stream' in configuration:
-        perror("can not have 'messages' or 'stream' in configuration")
+        raise CompileError("can not have 'messages' or 'stream' in configuration")
 
     resp = completion(
         messages=[
@@ -46,7 +46,7 @@ class GenerateDefinition(Definition):
         output_file, prompt, *definitions = args
         output_file, prompt = output_file.try_get_property('string'), prompt.try_get_property('string')
         if output_file is None or prompt is None:
-            perror(f'Generator requires strings (output_file, prompt), got ({output_file}, {prompt})')
+            raise CompileError(f'Generator requires strings (output_file, prompt), got ({output_file}, {prompt})')
             return lhs
         output_file, prompt = output_file.associated_value, prompt.associated_value
         cache_file = f'cache/generator/{output_file}.log'
@@ -111,7 +111,7 @@ class CheckDefinition(Definition):
                 elif defn.symbol.s in scope.local_defns:
                     del scope.local_defns[defn.symbol.s]
             
-        perror(f'Conditions {args} exceeded retries, giving up')
+        raise CompileError(f'Conditions {args} exceeded retries, giving up')
 
 @builtin_definition
 class ConfigureDefinition(Definition):

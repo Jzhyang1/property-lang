@@ -135,7 +135,7 @@ enclosed in one of the following:
 parenthesis (`(...)`), brackets (`[...]`), or braces (`{...}`)
 
 - Parenthesis (`(...)`) will accept the expressions inside as-is
-- Brackets (`[...]`) will accept the expressions inside as-is
+- Brackets (`[...]`) is an alias for `(...).`
 - Braces (`{...}`) will treat all expressions inside as right-to-left definition 
   (this is used primarily for definition definitions; rule of thumb is that
   there should be only 1 expression inside braces)

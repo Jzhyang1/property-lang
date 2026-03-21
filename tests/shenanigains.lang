@@ -3,7 +3,8 @@
  * 2
  * 3
  */
-"lib/printing.py" python definition import;
+"lib/arithmetic.py" python definition import;
+"lib/print.py" python definition import;
 
 y assign(x integer logical_not.+(x assign(2);););
 x.print;

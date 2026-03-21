@@ -1,5 +1,5 @@
-"lib/printing.py" python definition import;
-"lib/generator.py" python definition import;
+"lib/print.py" python definition import;
+"lib/generate.py" python definition import;
 
 model generate configure("ollama/llama3.1:8b");
 api_base generate configure("http://localhost:11434");

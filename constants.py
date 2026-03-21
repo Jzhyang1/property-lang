@@ -73,7 +73,7 @@ class Expression:
 
 class Definition:
     def __init__(self, placeholder_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
-                 body: Expression):
+                 body: list[Expression]):
         self.placeholder_symb = placeholder_symb
         self.properties = properties
         self.is_compound = is_compound
@@ -89,26 +89,19 @@ class Definition:
         return str(self.placeholder_symb) + ':' + str(self.properties)
 
 # Scoping
-VarScope = Callable[[str], 'Expression | None']
-def local_varscope(local_dict: dict[str, 'Expression'], previous_scope: VarScope) -> VarScope:
-    return lambda symbol: local_dict[symbol] if symbol in local_dict else previous_scope(symbol)
-
-DefnScope = Callable[[str], list['Definition']]
-def local_defnscope(local_dict: dict[str, list['Definition']], previous_scope: DefnScope) -> DefnScope:
-    return lambda symbol: local_dict[symbol] if symbol in local_dict else previous_scope(symbol)
-
 class Scope:
     def __init__(self, 
                  local_vars: None | dict[str, Expression] = None, local_defns: None | dict[str, list['Definition']] = None, 
                  parent_scope: 'None | Scope' = None):
         if local_vars is None: local_vars = {}
         if local_defns is None: local_defns = {}
-
         self.local_vars = local_vars
         self.local_defns = local_defns
+        self.parent = parent_scope
 
-        parent_var_lookup = parent_scope.var_lookup if parent_scope is not None else lambda x: None
-        self.var_lookup = local_varscope(local_vars, parent_var_lookup)
-
-        parent_defn_lookup = parent_scope.defn_lookup if parent_scope is not None else lambda x: []
-        self.defn_lookup = local_defnscope(local_defns, parent_defn_lookup)
+    def var_lookup(self, var_name: str) -> Expression | None:
+        return self.local_vars[var_name] if var_name in self.local_vars else \
+            self.parent.var_lookup(var_name) if self.parent is not None else None
+    def defn_lookup(self, var_name: str) -> list[Definition]:
+        return self.local_defns[var_name] if var_name in self.local_defns else \
+            self.parent.defn_lookup(var_name) if self.parent is not None else []

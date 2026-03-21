@@ -11,7 +11,7 @@
  * cos
  * cos
  */
-"lib/printing.py" python definition import;
+"lib/print.py" python definition import;
 
 0 then("haz" print)else("ard" print).print;
 1 then("foo" print)else("bar" print).print;

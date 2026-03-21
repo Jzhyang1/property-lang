@@ -5,7 +5,7 @@ import llvmlite.binding as llvm
 
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, perror
+    from definitions import builtin_definition, binary_apply, pwarning, CompileError
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -57,9 +57,9 @@ def _compile_expression(expression: Expression, scope: CompileScope,
             # TODO integer sizes can vary with properties
             return ir.Constant(ir.IntType(64), val.associated_value or 0)
         elif (val:=expression.try_get_property('string')):
-            perror('string compilation not implemented')
+            raise CompileError('string compilation not implemented')
         else:
-            perror(f'{expression} not resolved')
+            raise CompileError(f'{expression} not resolved')
     else:
         *properties, p = expression.properties
         if p.property == 'identifier':
@@ -83,7 +83,7 @@ def _compile_expression(expression: Expression, scope: CompileScope,
             elif p.property == 'assign':
                 return builder.store(rhs, lhs)
             else:
-                perror(f"{expression} is not defined")
+                raise CompileError(f"{expression} is not defined")
         elif p.property.s in unary_ops:
             val = _compile_expression(
                 Expression(expression.symbol, properties),
@@ -96,13 +96,13 @@ def _compile_expression(expression: Expression, scope: CompileScope,
                 cmpres = builder.icmp_signed('!=', val, zero, 'logical_not_tmp')
                 return builder.zext(cmpres, ir.IntType(64), 'bool_to_int_tmp')
             else:
-                perror(f"{expression} is not defined")
-        elif p.property == 'resolution':
-            perror("resolution definition not implemented")
+                raise CompileError(f"{expression} is not defined")
+        elif p.property == 'definition':
+            raise CompileError("definition definition not implemented")
         elif p.property == 'declare':
             # TODO allow non-integer types
             if not any(prop.property.s == 'integer' for prop in properties):
-                perror('non-integer variables not implemented yet')
+                raise CompileError('non-integer variables not implemented yet')
             scope[expression.symbol.s] = ir.GlobalVariable(module, ir.IntType(64), expression.symbol.s)
             return scope[expression.symbol.s]
         elif p.property == 'do':
@@ -118,7 +118,7 @@ def _compile_expression(expression: Expression, scope: CompileScope,
             # 3. there is something between the then and else statements (handled the same as 1 combined to 2)
             # check for then-statement right before else
             if len(properties) == 0 or properties[-1].property.s != 'then':
-                perror('else without then is not supported')
+                raise CompileError('else without then is not supported')
             *properties, then_prop = properties
             condition = _compile_expression(
                 Expression(expression.symbol, properties),
@@ -145,7 +145,7 @@ def _compile_expression(expression: Expression, scope: CompileScope,
             phi.add_incoming(else_val, else_block)
             return phi
         else:
-            perror(f"User-defined resolution not implemented {expression}")
+            raise CompileError(f"User-defined definition not implemented {expression}")
 
 
 @builtin_definition
@@ -167,7 +167,7 @@ class CompileDefinition(Definition):
         builder.ret(ir.Constant(ir.IntType(64), 0))
 
         if (path := file_dest.try_get_property('string')) is None:
-            perror(f'compile destination must be a string, got {file_dest}')
+            raise CompileError(f'compile destination must be a string, got {file_dest}')
         path_str = path.associated_value
 
         # Output compiled binary file
@@ -176,7 +176,7 @@ class CompileDefinition(Definition):
         llvm_mod.verify()
 
         if not (path_str.endswith('.obj') or path_str.endswith('.out')):
-            perror(f'compile destination must end with .obj or .out, got {file_dest}')
+            raise CompileError(f'compile destination must end with .obj or .out, got {file_dest}')
 
         obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
         with open(obj_path_str, 'wb') as f:
