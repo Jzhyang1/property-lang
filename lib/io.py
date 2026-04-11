@@ -1,6 +1,6 @@
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, CompileError
+    from definitions import builtin_definition, unary_apply, binary_apply, pwarning, CompileError
 
 
 @builtin_definition
@@ -26,7 +26,8 @@ class FileOpenDefinition(Definition):
 class FileCloseDefinition(Definition):
     symbol = 'close'
     property_names = ['file']
-    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lval = lhs.try_get_property('file')
         assert lval is not None
         if not lval.is_association:
@@ -39,7 +40,8 @@ class FileCloseDefinition(Definition):
 class FileReadDefinition(Definition):
     symbol = 'read'
     property_names = ['file']
-    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lval = lhs.try_get_property('file')
         assert lval is not None
         if not lval.is_association:

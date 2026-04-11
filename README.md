@@ -119,6 +119,10 @@ Any sequence of 1 or more of the following characters: `~!@#$%^&*/-+=<>|?:;.`
 
 Has the implicit property `operator`
 
+Must be a compound property. If there is no compound list following the operator,
+the next token will be taken as the sole expression of the compound list and a `.`
+will be added to the expression and the operator. I.E. `1+x` will be `1 +(x.).`
+
 **Integer**
 Any integer number
 

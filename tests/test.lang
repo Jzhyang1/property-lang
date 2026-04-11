@@ -1,10 +1,17 @@
 /* should print:
  *
+ * 55
  * False
  * 3
  */
 "lib/arithmetic.py" python definition import;
 "lib/print.py" python definition import;
+
+/* non-alnum operators are implicitly compound with 
+ * the next non-operator token, in this case we get:
+ * 22 +[33] print;
+ */
+22 + 33 print;
 
 x list declare;
 x.append(2);

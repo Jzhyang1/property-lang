@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable, NoReturn
 from functools import wraps
 
-from constants import Definition, Scope, Expression, Property, Token
+from constants import Definition, Scope, Expression, Property, Token, token_types
 
 __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
@@ -66,14 +66,14 @@ def build_defn_instance(defn_class) -> Definition:
     row = get_defn_line(defn_class)
     if hasattr(defn_class, 'param_names'):
         is_compound = True
-        params = [Expression(Token(param_name, file, row, 0), []) 
+        params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) 
                   for param_name in defn_class.param_names]
     else:
         is_compound = False
         params = []
 
     if hasattr(defn_class, 'property_names'):
-        properties: list[Property] = [Property(Token(p_name, file, row, 0)) 
+        properties: list[Property] = [Property(Token(p_name, file, row, 0, token_types['alnum'])) 
                                       for p_name in defn_class.property_names]
     else:
         properties = []
@@ -84,13 +84,30 @@ def builtin_definition(defn_class):
         build_defn_instance(defn_class)
     )
 
-def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
-    '''
-    unwarps the apply args to a single argument
-    '''
+# Wrappers for passing only the neccessary arguments
+
+def unary_apply(func: Callable[[Any, Expression, Scope], Expression]):
     @wraps(func)
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        return func(self, lhs, scope)
+    return apply
+
+def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
+    @wraps(func)
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         return func(self, lhs, args[0], scope)
+    return apply
+
+def multi_apply(func: Callable[[Any, Expression, list[Expression], Scope], Expression]):
+    @wraps(func)
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        return func(self, lhs, args, scope)
+    return apply
+
+def idempotent_apply(func: Callable[[Any], Any]):
+    @wraps(func)
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        return lhs.create_with_property(prop)
     return apply
 
 # Definitions begin below
@@ -139,6 +156,7 @@ class ControlElseDefinition(Definition):
     symbol = 'else'
     param_names = ['false_branch']
     property_names = ['integer']
+    @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         ival = lhs.try_get_property('integer')
         assert ival is not None
@@ -163,6 +181,7 @@ class ControlThenDefinition(Definition):
     symbol = 'then'
     param_names = ['true_branch']
     property_names = ['integer']
+    @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         ival = lhs.try_get_property('integer')
         assert ival is not None
@@ -181,7 +200,8 @@ class ControlThenDefinition(Definition):
 class DeclareDefinition(Definition):
     symbol = 'declare'
     property_names = ['identifier']
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         scope.local_vars[lhs.symbol.s] = Expression(lhs.symbol, [
             p.copy() for p in lhs.properties if p.property != 'identifier'
         ])
@@ -191,6 +211,7 @@ class DeclareDefinition(Definition):
 class DefinitionDefinition(Definition):
     symbol = 'definition'
     param_names = ['body']
+    @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         *placeholder_properties, p = lhs.properties
         # remove 'identifier' from properties and parameters
@@ -213,7 +234,8 @@ class DefinitionDefinition(Definition):
 class DoDefinition(Definition):
     symbol = 'do'
     param_names = ['body']
-    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         return lhs
     
 @builtin_definition
@@ -235,6 +257,7 @@ class FieldSetDefinition(Definition):
     symbol = 'field_set'
     param_names = ['field']
     property_names = ['structure']
+    @multi_apply
     def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
         val = lhs.try_get_property('structure')
         assert val is not None
@@ -249,7 +272,8 @@ class FieldSetDefinition(Definition):
 @builtin_definition
 class IdentifierDefinition(Definition):
     symbol = 'identifier'
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         if (val := scope.var_lookup(lhs.symbol.s)) is None:
             raise CompileError(f"unable to resolve identifier {lhs}")
         return val
@@ -264,18 +288,52 @@ def find_import_file(path_anchor: str, path: str):
     else:
         raise CompileError(f'unable to resolve path {path}')
 
+class ImportedSharedDefinition(Definition):
+    def __init__(self, name: str, is_compound: bool, func: Callable, source_file: str):
+        # TODO somehow check the number of arguments of the function
+        super().__init__(name, [], is_compound, [], [])
+        self.func = func
+    @multi_apply
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+        self_value = expression_to_associated_value(lhs)
+        arg_values = [expression_to_associated_value(arg) for arg in args]
+        res = self.func(self_value, *arg_values)
+        return associated_value_to_expression(lhs.symbol, res)
+    
+@builtin_definition
+class ImportSharedDefinition(Definition):
+    symbol = 'import'
+    property_names = ['string', 'shared']
+    param_names = ['definitions...']
+    @multi_apply
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+        path = lhs.try_get_property('string')
+        assert path is not None
+        # Import the shared library file
+        path_str = os.path.abspath(find_import_file(lhs.symbol.file, path.associated_value))
+        import ctypes
+        lib = ctypes.CDLL(path_str)
+        ## TODO signature definition
+        for definition in args:
+            symbol_name = definition.symbol.s
+            defn_list = scope.local_defns.setdefault(symbol_name, [])
+            defn_list.append(ImportedSharedDefinition(symbol_name, True, lib[symbol_name], path_str))
+            defn_list.append(ImportedSharedDefinition(symbol_name, False, lib[symbol_name], path_str))
+        return lhs
+
 class ImportedPythonDefinition(Definition):
     def __init__(self, func: Callable, source_file: str):
         symbol = func.__name__
         # Get the parameters
         sig = inspect.signature(func)
         param_names = list(sig.parameters.keys())
-        placeholder_symb, *param_names = param_names
+        _, *param_names = param_names
         def token(s: str):
-            return Token(s, source_file, 0, 0) # TODO better row accuracy
-        super().__init__(placeholder_symb, [], 
+            return Token(s, source_file, 0, 0, token_types['alnum']) # TODO better row accuracy
+        super().__init__(symbol, [], 
                          len(param_names) > 0, [Expression(token(s), []) for s in param_names], [])
         self.func = func
+    @multi_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         self_value = expression_to_associated_value(lhs)
         arg_values = [expression_to_associated_value(arg) for arg in args]
@@ -301,7 +359,7 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
         else:
             start_line = get_defn_line(defn_impl)
             scope.local_vars[symbol] = associated_value_to_expression(
-                Token(symbol, path_str, start_line, 0), defn_impl, symbol)
+                Token(symbol, path_str, start_line, 0, token_types['alnum']), defn_impl, symbol)
     return res
         
 
@@ -312,6 +370,7 @@ class ImportRawPythonDefinition(Definition):
     param_names = ['definitions...']
     # We need to name which Python variables/functions to import.
     # Functions are imported as `foo(bar, baz) == bar foo(baz)` and no type safety
+    @multi_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         path = lhs.try_get_property('string')
         assert path is not None
@@ -325,7 +384,8 @@ class ImportRawPythonDefinition(Definition):
 class ImportPythonDefinition(Definition):
     symbol = 'import'
     property_names = ['string', 'python', 'definition']
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         path = lhs.try_get_property('string')
         assert path is not None
         # Load in the python file
@@ -405,7 +465,8 @@ class ListIndexDefinition(Definition):
 @builtin_definition
 class LogicalNotDefinition(Definition):
     symbol = 'logical_not'
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         if (ival := lhs.try_get_property('integer')) is None:
             pwarning(f"logical not can not be applied to {lhs}")
             return lhs
@@ -419,10 +480,25 @@ class LogicalNotDefinition(Definition):
 @builtin_definition
 class PropertiesDefinition(Definition):
     symbol = 'properties'
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
         res_list = []
         for p in lhs.properties:
             res_list.append(Expression(p.property, [
                 Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
             ]))
         return create_list(lhs.symbol, res_list)
+
+# Types - these are idempotent
+
+@builtin_definition
+class IntegerDefinition(Definition):
+    symbol = 'integer'
+    @idempotent_apply
+    def apply(self): pass
+    
+@builtin_definition
+class StringDefinition(Definition):
+    symbol = 'string'
+    @idempotent_apply
+    def apply(self): pass

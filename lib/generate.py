@@ -2,7 +2,7 @@ import os
 from typing import Any
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
+    from definitions import builtin_definition, binary_apply, multi_apply, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
 
 
 class GeneratorError(Exception):
@@ -42,6 +42,7 @@ class GenerateDefinition(Definition):
     symbol = 'generate'
     property_names = ['python']
     param_names = ['output_file', 'prompt', 'definitions...']
+    @multi_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         output_file, prompt, *definitions = args
         output_file, prompt = output_file.try_get_property('string'), prompt.try_get_property('string')
@@ -75,6 +76,7 @@ class CheckDefinition(Definition):
     symbol = 'check'
     property_names = ['generate']
     param_names = ['conditions...'] # we check through all of the conditions, and if any of them fail, we regenerate the source for the associated generator
+    @multi_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         generate = lhs.try_get_property('generate')
         assert generate is not None

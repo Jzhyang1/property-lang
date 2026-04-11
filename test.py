@@ -8,8 +8,8 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     file = args.file
 
-    tokenize(file)
-    built, i = build_tree(tokenize(file))
+    tokenized = tokenize(file)    
+    built, i = build_tree(tokenized)
     scope = Scope(local_defns=global_definitions)
     try:
         for expr in built:

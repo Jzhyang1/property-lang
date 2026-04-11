@@ -1,12 +1,13 @@
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, binary_apply, pwarning, CompileError
+    from definitions import builtin_definition, binary_apply, multi_apply, pwarning, CompileError
 
 
-@ builtin_definition
+@builtin_definition
 class ListDefinition(Definition):
     symbol = 'list'
     param_names = ['items...']
+    @multi_apply
     def apply(self, lhs: Expression, items: list[Expression], scope: Scope) -> Expression:
         prop = Property(lhs.symbol.create_renamed('list'), is_association=True, associated_value=items)
         props = lhs.properties + [prop]

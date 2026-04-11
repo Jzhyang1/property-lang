@@ -19,6 +19,21 @@ class StringEqualDefinition(Definition):
         ])
 
 @builtin_definition
+class StringNotEqualDefinition(Definition):
+    symbol = '!='
+    param_names = ['rhs']
+    property_names = ['string']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        lval = lhs.try_get_property('string')
+        rval = rhs.try_get_property('string')
+        assert lval is not None and rval is not None
+        res = lval.associated_value != rval.associated_value
+        return Expression(lhs.symbol.create_renamed('!='), [
+            Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
+        ])
+
+@builtin_definition
 class StringConcatDefinition(Definition):
     symbol = '+'
     property_names = ['string']

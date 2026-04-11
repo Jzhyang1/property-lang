@@ -3,7 +3,7 @@ from definitions import global_definitions, pwarning, CompileError
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
-    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope') -> Expression:
+    def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         scope = scope.parent or scope
         new_varscope = {
             self.placeholder_symb: expr
@@ -98,7 +98,7 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     best_match = matches[0]
     return best_match.apply(
         Expression(expr.symbol, properties), 
-        args, scope
+        args, scope, prop
     )
 
 def resolve_expression(expr: Expression, scope: Scope) -> Expression:

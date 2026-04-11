@@ -10,6 +10,7 @@ token_types = {
     'special_combined': 1,
     'alnum': 2,
     'string': 3,
+    'integer': 4,
 }
 
 parentheses = {
@@ -23,13 +24,14 @@ separators = {
 }
 
 class Token:
-    def __init__(self, s: str, file: str, row: int, col: int):
+    def __init__(self, s: str, file: str, row: int, col: int, token_type: int):
         self.s = s
         self.file = file
         self.row = row
         self.col = col
+        self.token_type = token_type
     def create_renamed(self, s: str):
-        return Token(s, self.file, self.row, self.col)
+        return Token(s, self.file, self.row, self.col, self.token_type)
     def __eq__(self, other: 'Token | str'):
         return str(other) == self.s
     def __str__(self) -> str:
@@ -70,6 +72,10 @@ class Expression:
             if property.property == property_name:
                 return property
         return None
+    def create_with_property(self, property: Property) -> 'Expression':
+        new_expr = Expression(self.symbol, self.properties.copy())
+        new_expr.properties.append(property)
+        return new_expr
 
 class Definition:
     def __init__(self, placeholder_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
@@ -80,7 +86,7 @@ class Definition:
         self.params = params
         self.body = body
     
-    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope') -> Expression:
+    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
         '''
         this is the function overloaded for builtin properties
         '''
