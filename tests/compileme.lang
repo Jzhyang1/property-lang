@@ -11,3 +11,7 @@
 0 do (
 	1 then(5 print)else(99 print)
 ) compile_to("print5.out");
+
+0 do (
+	"Hello, World!" print
+) compile_to("hello.out");

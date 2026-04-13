@@ -35,6 +35,10 @@ def _define_print_integer(module):
     builder.call(printf, [fmt_arg, print_integer.args[0]])
     builder.ret(print_integer.args[0])
     
+def _define_print_string(module):
+    # Add the declaration of puts to the module
+    puts_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))])
+    puts = ir.Function(module, puts_ty, name="puts")
 
 def get_compile_construct(scope: Scope, name: CompileConstruct) -> Any: # CompileConstructType
     module_expr = scope.force_var_lookup(name)
@@ -428,6 +432,7 @@ class CompileDefinition(Definition):
         func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
         _define_print_integer(module)
+        _define_print_string(module)
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
