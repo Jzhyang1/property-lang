@@ -72,10 +72,26 @@ class Expression:
             if property.property == property_name:
                 return property
         return None
+    def force_get_property(self, property_name: str) -> Property:
+        prop = self.try_get_property(property_name)
+        assert prop is not None
+        return prop
     def create_with_property(self, property: Property) -> 'Expression':
         new_expr = Expression(self.symbol, self.properties.copy())
         new_expr.properties.append(property)
         return new_expr
+    def without_properties_after(self, prop_str: str) -> tuple['Expression', Property]:
+        '''
+        pops properties from the end of expr until it finds a property with the given name
+        returns the expression remaining and the last property popped (the one with the given name)
+        '''
+        i = len(self.properties) - 1
+        properties = self.properties
+        while i >= 0 and properties[i].property.s != prop_str:
+            i -= 1
+        if i < 0:
+            raise Exception(f"property {prop_str} not found in expression {self}")
+        return Expression(self.symbol, properties[:i]), properties[i]
 
 class Definition:
     def __init__(self, placeholder_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
@@ -111,3 +127,7 @@ class Scope:
     def defn_lookup(self, var_name: str) -> list[Definition]:
         return self.local_defns[var_name] if var_name in self.local_defns else \
             self.parent.defn_lookup(var_name) if self.parent is not None else []
+    def force_var_lookup(self, var_name: str) -> Expression:
+        var = self.var_lookup(var_name)
+        assert var is not None
+        return var

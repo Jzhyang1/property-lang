@@ -9,6 +9,16 @@ from constants import Definition, Scope, Expression, Property, Token, token_type
 __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
 
+def make_global_vars(file: str) -> dict[str, Expression]:
+    file_token = Token('__IMPORT_PATH__', file, 0, 0, token_types['alnum'])
+    global_vars = {
+        '__IMPORT_PATH__': Expression(
+            file_token,
+            [Property(file_token, is_association=True, associated_value=file)]
+        )
+    }
+    return global_vars
+
 class CompileError(Exception):
     def __init__(self, *msg, anchor: Token|None = None):
         header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}:"
@@ -83,6 +93,7 @@ def builtin_definition(defn_class):
     global_definitions.setdefault(defn_class.symbol, []).append(
         build_defn_instance(defn_class)
     )
+    return defn_class
 
 # Wrappers for passing only the neccessary arguments
 
@@ -161,7 +172,7 @@ class ControlElseDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value == 0:
-            from main import resolve_last_property
+            from main import resolve_last_property, resolve_property_on, pop_properties_until
             res = lhs
             for expr in body:
                 res = resolve_last_property(expr, scope)
@@ -173,7 +184,7 @@ class ControlElseDefinition(Definition):
                 properties.pop()
             if len(properties) == 0:
                 return lhs
-            from main import resolve_last_property
+            from main import resolve_last_property, resolve_property_on, pop_properties_until
             return resolve_last_property(Expression(lhs.symbol, properties), scope)
 
 @builtin_definition
@@ -186,7 +197,7 @@ class ControlThenDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value != 0:
-            from main import resolve_last_property
+            from main import resolve_last_property, resolve_property_on, pop_properties_until
             res = lhs
             for expr in body:
                 res = resolve_last_property(expr, scope)
@@ -342,18 +353,18 @@ class ImportedPythonDefinition(Definition):
 
 def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scope: Scope):
     path_str = find_import_file(path_anchor, path)
-    empty_globals = {}
+    captured_globals = make_global_vars(path_str)
     with open(path_str, 'r') as f:
         content = f.read()
     # TODO make this safe
     code = compile(content, path_str, 'exec')
-    exec(code, empty_globals)
+    exec(code, captured_globals)
     res = {}
     for symbol in imports:
-        if symbol not in empty_globals:
+        if symbol not in captured_globals:
             pwarning(f"unable to import {symbol} from {path_str}")
             continue
-        defn_impl = empty_globals[symbol]
+        defn_impl = captured_globals[symbol]
         if callable(defn_impl):
             scope.local_defns.setdefault(symbol, []).append(ImportedPythonDefinition(defn_impl, path_str))
         else:
@@ -394,6 +405,7 @@ class ImportPythonDefinition(Definition):
         with open(path_str, 'r') as f:
             content = f.read()
         code = compile(content, path_str, 'exec')
+        # TODO capture global_vars
         exec(code, globals())
         return lhs
     
@@ -435,7 +447,7 @@ class ListEachDefinition(Definition):
             raise CompileError(f'`each` requires a property argument, got {callback}')
         prop = pval.associated_value
         assert prop is not None
-        from main import resolve_expression, resolve_last_property
+        from main import resolve_last_property, resolve_property_on, pop_properties_until
         res: list[Expression] = []
         for item in iterable.associated_value:
             # item is an Expression

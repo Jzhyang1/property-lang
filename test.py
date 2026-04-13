@@ -8,7 +8,7 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     file = args.file
 
-    tokenized = tokenize(file)    
+    tokenized = tokenize(file)
     built, i = build_tree(tokenized)
     scope = Scope(local_defns=global_definitions)
     try:

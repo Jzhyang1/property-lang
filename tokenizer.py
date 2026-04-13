@@ -130,9 +130,9 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
             arg_expr = build_tree_symbol(tokens[i+1])
             arg_expr.properties.append(Property(tokens[i+1].create_renamed('.')))
 
-            cur_expr.properties.append(Property(tokens[i], True, [arg_expr]))
-            cur_expr.properties.append(Property(tokens[i].create_renamed('.')))
-            i += 1            
+            cur_expr.properties.append(Property(tokens[i], True, [arg_expr], start_char='('))
+            cur_expr.properties.append(Property(tokens[i+1].create_renamed('.')))
+            i += 2  # we consumed two tokens
         else:
             # if len(properties) > 1 and not properties[-1].is_compound and
             cur_expr.properties.append(Property(tokens[i], False, []))

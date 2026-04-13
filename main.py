@@ -1,5 +1,5 @@
 from constants import Property, Expression, Definition, Scope
-from definitions import global_definitions, pwarning, CompileError
+from definitions import global_definitions, make_global_vars, pwarning, CompileError
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
@@ -43,9 +43,20 @@ def resolve_vars(property: Property, scope: Scope, nested=False) -> Property:
     property.compound_properties = expressions
     return property
 
+def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expression:
+    '''
+    resolves the property on the expression
+    It is safe to call resolve_property_on when the property is known,
+    but if evaluating code directly, resolve_last_property should be used
+    '''
+    # TODO refactor resolve_last_property to call resolve_property_on
+    return resolve_last_property(expr.create_with_property(prop), scope)
+
 def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     '''
-    resolves the last property of expr
+    Resolves the last property of expr.
+    It is safe to call resolve_property_on when the property is known,
+    but if evaluating code directly, resolve_last_property should be used
     '''
     properties = expr.properties
     while len(properties) > 0 and properties[-1].property.s in [',']:
@@ -79,12 +90,19 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         pwarning(f"no matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
         return expr
     
-    # find the match with the most properties
-    matches.sort(key=lambda m: len(m.properties), reverse=True)
+    # if there are multiple matches choose the one that has the last property of properties
+    #  then the second to last, etc. until we find a unique match or run out of properties/matches
+    matches_sets = [(set(p.property.s for p in m.properties), m) for m in matches]
+    for p in reversed(properties):
+        if len(matches_sets) <= 1:
+            break
+        matches_sets = [(ps, m) for ps, m in matches_sets if p.property.s in ps]
     # if there are multiple matches with the same number of properties, print an error
-    if len(matches) > 1 and len(matches[0].properties) == len(matches[1].properties):
+    #  we know this happened if len(matches_sets) == 0 since that means we discarded multiple matches at the same time
+    if len(matches_sets) == 0:
         pwarning(f"multiple matches found for property {prop} in symbol {expr.symbol} with properties {property_set}")
         return expr
+    _, best_match = matches_sets[0]
     
     if prop.start_char == '{':
         # backward resolve
@@ -95,7 +113,6 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
 
     # apply the best match
-    best_match = matches[0]
     return best_match.apply(
         Expression(expr.symbol, properties), 
         args, scope, prop
@@ -122,9 +139,8 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     file = args.file
 
-    tokenize(file)
     built, i = build_tree(tokenize(file))
-    scope = Scope(local_defns=global_definitions)
+    scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
     try:
         for expr in built:
             resolve_expression(expr, scope)

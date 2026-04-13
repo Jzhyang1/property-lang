@@ -1,5 +1,13 @@
 "lib/compile.py" python definition import;
 "lib/print.py" python definition import;
+"lib/arithmetic.py" python definition import;
 
-code do(12 print.) compile("print12.out");
-code do(1 then(5 print.)else(99 print.).) compile("print5.out");
+/* 7+5 expands into 7 +(5.). which
+	because of the `.` it is evaluated at compile-time
+	to be the constant 12 */
+7+5 print then(0) compile_to("print12.out");
+
+/* 0 do (...) -> this returns 0 */
+0 do (
+	1 then(5 print)else(99 print)
+) compile_to("print5.out");
