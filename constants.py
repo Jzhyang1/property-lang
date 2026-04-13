@@ -80,10 +80,10 @@ class Expression:
         new_expr = Expression(self.symbol, self.properties.copy())
         new_expr.properties.append(property)
         return new_expr
-    def without_properties_after(self, prop_str: str) -> tuple['Expression', Property]:
+    def discard_properties_after(self, prop_str: str) -> tuple['Expression', Property]:
         '''
         pops properties from the end of expr until it finds a property with the given name
-        returns the expression remaining and the last property popped (the one with the given name)
+        returns the expression remaining, the property with the given name
         '''
         i = len(self.properties) - 1
         properties = self.properties
@@ -92,6 +92,19 @@ class Expression:
         if i < 0:
             raise Exception(f"property {prop_str} not found in expression {self}")
         return Expression(self.symbol, properties[:i]), properties[i]
+    
+    def pop_properties_after(self, prop_str: str) -> tuple['Expression', list[Property]|None]:
+        '''
+        pops properties from the end of expr until it finds a property with the given name
+        returns the expression remaining, the properties popped (excluding the property with the given name)
+        '''
+        i = len(self.properties) - 1
+        properties = self.properties
+        while i >= 0 and properties[i].property.s != prop_str:
+            i -= 1
+        if i < 0:
+            return self, None
+        return Expression(self.symbol, properties[:i+1]), properties[i+1:]
 
 class Definition:
     def __init__(self, placeholder_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 

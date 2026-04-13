@@ -172,7 +172,7 @@ class ControlElseDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value == 0:
-            from main import resolve_last_property, resolve_property_on, pop_properties_until
+            from main import resolve_last_property, resolve_property_on
             res = lhs
             for expr in body:
                 res = resolve_last_property(expr, scope)
@@ -184,7 +184,7 @@ class ControlElseDefinition(Definition):
                 properties.pop()
             if len(properties) == 0:
                 return lhs
-            from main import resolve_last_property, resolve_property_on, pop_properties_until
+            from main import resolve_last_property, resolve_property_on
             return resolve_last_property(Expression(lhs.symbol, properties), scope)
 
 @builtin_definition
@@ -197,7 +197,7 @@ class ControlThenDefinition(Definition):
         ival = lhs.try_get_property('integer')
         assert ival is not None
         if ival.associated_value != 0:
-            from main import resolve_last_property, resolve_property_on, pop_properties_until
+            from main import resolve_last_property, resolve_property_on
             res = lhs
             for expr in body:
                 res = resolve_last_property(expr, scope)
@@ -286,7 +286,7 @@ class IdentifierDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         if (val := scope.var_lookup(lhs.symbol.s)) is None:
-            raise CompileError(f"unable to resolve identifier {lhs}")
+            raise CompileError(f"unable to resolve identifier {lhs}", anchor=lhs.symbol)
         return val
     
 def find_import_file(path_anchor: str, path: str):
@@ -417,60 +417,6 @@ def create_list(anchor: Token, value: list[Expression]) -> Expression:
     res_properties[0].associated_value = value
     res = Expression(anchor, res_properties)
     return res
-
-@builtin_definition
-class ListAppendDefinition(Definition):
-    symbol = 'append'
-    property_names = ['list']
-    param_names = ['item']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        dst = lhs.try_get_property('list')
-        assert dst is not None
-        dst.is_association = True
-        dst.associated_value = dst.associated_value or []
-        dst.associated_value.append(rhs)
-        return rhs
-    
-@builtin_definition
-class ListEachDefinition(Definition):
-    symbol = 'each'
-    property_names = ['list']
-    param_names = ['callback_property']
-    @binary_apply
-    def apply(self, lhs: Expression, callback: Expression, scope: Scope) -> Expression:
-        iterable = lhs.try_get_property('list')
-        assert iterable is not None 
-        if iterable.associated_value is None:
-            return lhs
-        if (pval := callback.try_get_property('property')) is None:
-            raise CompileError(f'`each` requires a property argument, got {callback}')
-        prop = pval.associated_value
-        assert prop is not None
-        from main import resolve_last_property, resolve_property_on, pop_properties_until
-        res: list[Expression] = []
-        for item in iterable.associated_value:
-            # item is an Expression
-            expr = Expression(item.symbol, 
-                              item.properties + [prop])
-            res.append(resolve_last_property(expr, scope))
-        return create_list(lhs.symbol, res)
-
-@builtin_definition
-class ListIndexDefinition(Definition):
-    symbol = 'index'
-    property_names = ['list']
-    param_names = ['index']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        dst = lhs.try_get_property('list')
-        assert dst is not None
-        if (isrc := rhs.try_get_property('integer')) is None:
-            raise CompileError(f'unable to index {lhs} with {rhs}')
-        if not isinstance(dst.associated_value, list) or \
-                isrc.associated_value >= len(dst.associated_value):
-            raise CompileError(f'index out of bounds on {lhs} with {rhs}')
-        return dst.associated_value[isrc.associated_value]
 
 # Logical operators
 

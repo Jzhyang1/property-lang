@@ -6,6 +6,7 @@
  */
 "lib/arithmetic.py" python definition import;
 "lib/print.py" python definition import;
+"lib/list.py" python definition import;
 
 /* non-alnum operators are implicitly compound with 
  * the next non-operator token, in this case we get:
@@ -16,7 +17,7 @@
 x list declare;
 x.append(2);
 x.append(3);
-z assign(x.each(n increment definition{n.+(1)};););
+z assign(x.each(n increment definition{n+(1)};););
 y assign(z.index(1). <(4););
 y.print;
 z.index(0).print;

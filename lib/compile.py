@@ -112,7 +112,7 @@ class CompileBuiltinBinaryDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         property_name = self.property_names[-1]
-        lhs, prop = lhs.without_properties_after(property_name)
+        lhs, prop = lhs.discard_properties_after(property_name)
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
         if len(prop.compound_properties) == 0:
@@ -186,7 +186,7 @@ class CompileIntegerLogicalNotDefinition(Definition):
     property_names = ['integer', 'logical_not']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, prop = lhs.without_properties_after('logical_not')
+        lhs, _ = lhs.discard_properties_after('logical_not')
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
         zero = ir.Constant(ir.IntType(64), 0)
@@ -203,7 +203,7 @@ class CompilePrintIntegerDefinition(Definition):
     property_names = ['integer', 'print']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, prop = lhs.without_properties_after('print')
+        lhs, _ = lhs.discard_properties_after('print')
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
         print_res = builder.call(get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
@@ -216,7 +216,7 @@ class CompilePrintStringDefinition(Definition):
     property_names = ['string', 'print']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, prop = lhs.without_properties_after('print')
+        lhs, _ = lhs.discard_properties_after('print')
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
         puts = get_compile_construct(scope, '__MODULE__').get_global('puts')
@@ -286,7 +286,7 @@ class CompileThenDefinition(Definition):
     property_names = ['then']   # This is only the 'then' block, there will be no else following
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        cond_expr, body_prop = lhs.without_properties_after('then')
+        cond_expr, body_prop = lhs.discard_properties_after('then')
         cond_val = get_compiled(cond_expr, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
 
@@ -322,7 +322,7 @@ class CompileElseDefinition(Definition):
     property_names = ['else']   # This is only the 'else' block, there is no then block before this
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        cond_expr, body_prop = lhs.without_properties_after('else')
+        cond_expr, body_prop = lhs.discard_properties_after('else')
         cond_val = get_compiled(cond_expr, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
         # 1. Branch: if cond != 0 goto then_block else goto merge_block
@@ -357,8 +357,8 @@ class CompileThenElseDefinition(Definition):
     property_names = ['then', 'else']   # This is the 'x then(a) else(b)' block
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, else_body_prop = lhs.without_properties_after('else')
-        cond_expr, then_body_prop = lhs.without_properties_after('then')
+        lhs, else_body_prop = lhs.discard_properties_after('else')
+        cond_expr, then_body_prop = lhs.discard_properties_after('then')
 
         cond_val = get_compiled(cond_expr, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
@@ -402,7 +402,7 @@ class CompileDoDefinition(Definition):
     property_names = ['do']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, body_prop = lhs.without_properties_after('do')
+        lhs, body_prop = lhs.discard_properties_after('do')
         builder = get_compile_construct(scope, '__BUILDER__')
         for expr in body_prop.compound_properties:
             get_compiled(expr, scope)

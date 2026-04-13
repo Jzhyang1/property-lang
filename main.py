@@ -13,35 +13,34 @@ class UserDefinedDefinition(Definition):
         new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
         last = expr
         for local_expr in self.body:
+            local_expr = resolve_vars(local_expr, new_scope) # we need to resolve the variable into values
             last = resolve_last_property(local_expr, new_scope)
         return last
 
 
 # Begin function definitions
 
-
-def resolve_vars(property: Property, scope: Scope, nested=False) -> Property:
+def resolve_vars(expr: Expression, scope: Scope) -> Expression:
     '''
-    resolves the property's variables if it is compound, otherwise returns the property
+    Resolves the expression's identifier property recursively within all properties.
+    Returns the expression with all before the identifier property replaced with the resolved expression
+    * this is a single-pass resolution, so any identifier properties introduced by resolution will not be resolved
     '''
-    if not property.is_compound:
-        return property
-    if not (nested or property.start_char in ['{', '[']):
-        return property
-
-    property = property.copy()
-    expressions : list[Expression] = []
-    for expr in property.compound_properties:
-        expr = Expression(expr.symbol, expr.properties.copy())
-        if (var := scope.var_lookup(expr.symbol.s)) is not None:
-            expr.symbol = var.symbol
-            expr.properties = var.properties + expr.properties
-        # resolve recursively
-        for i in reversed(range(len(expr.properties))):
-            expr.properties[i] = resolve_vars(expr.properties[i], scope, True)
-        expressions.append(expr)
-    property.compound_properties = expressions
-    return property
+    properties = [
+        Property(p.property, True, [resolve_vars(e, scope) for e in p.compound_properties], p.is_association, p.associated_value, p.start_char) 
+        if p.is_compound else p for p in expr.properties
+    ]
+    expr = Expression(expr.symbol, properties)
+    var_expr, remaining_properties = expr.pop_properties_after('identifier')
+    if remaining_properties is None:
+        # Not an identifier
+        return expr
+    # Resolve the identifier if the variable exists
+    if scope.var_lookup(var_expr.symbol.s) is None:
+        pwarning(f"variable {var_expr.symbol.s} not found in scope", anchor=var_expr.symbol)
+        return expr
+    res = resolve_last_property(var_expr, scope)
+    return Expression(res.symbol, res.properties + remaining_properties)
 
 def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expression:
     '''
@@ -62,12 +61,14 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     while len(properties) > 0 and properties[-1].property.s in [',']:
         properties = properties[:-1]
     if len(properties) == 0:
+        raise CompileError("cannot resolve property on expression with no properties", anchor=expr.symbol)
         pwarning(f"no properties to resolve for {expr}")
         return expr
     *properties, prop = properties
 
     # We need to handle backward resolution
     if len(properties) > 0 and properties[-1].property.s in ['.', ';']:
+        pwarning("Something went terribly wrong")
         expr = resolve_last_property(Expression(expr.symbol, properties[:-1]), scope)
         properties = expr.properties.copy()
     if prop.property.s in ['.', ';']:
@@ -104,13 +105,8 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
         return expr
     _, best_match = matches_sets[0]
     
-    if prop.start_char == '{':
-        # backward resolve
-        args = [resolve_last_property(local_expr, scope) if local_expr.properties[-1] in ['.', ';'] else local_expr
-                for local_expr in prop.compound_properties]
-    else:
-        # forward resolve
-        args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
+    # forward resolve
+    args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
 
     # apply the best match
     return best_match.apply(
@@ -128,8 +124,8 @@ def resolve_expression(expr: Expression, scope: Scope) -> Expression:
             expr_copy = resolve_last_property(expr_copy, scope)
             expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
             assert not any(p.property.s in ['.', ';'] for p in expr_copy.properties)
-        elif prop.property.s not in [',']:
-            expr_copy.properties.append(resolve_vars(prop, scope))
+        else:
+            expr_copy.properties.append(prop)
     return expr_copy
 
 if __name__ == "__main__":
@@ -141,9 +137,5 @@ if __name__ == "__main__":
 
     built, i = build_tree(tokenize(file))
     scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
-    try:
-        for expr in built:
-            resolve_expression(expr, scope)
-    except CompileError as e:
-        import sys
-        sys.exit(1)
+    for expr in built:
+        resolve_expression(expr, scope)
