@@ -1,13 +1,10 @@
 **IMPORTANT**: PL is unlike other programming languages in MANY ways. 
-Please read through section 1, "Highlights" to make sure you don't end
-up stuck in sill rabbit holes.
+Please make sure to read Section 1.
 
 ## 0. Introduction
 
-PL is a programming language. We allow full control over the program
-behavior during both the compilation phase and the compiled program. 
-At the same time, we provide built-in libraries to make programming easy.
-By default, PL is interpreted, but there are caveats to that.
+PL is a programming language designed to be usable in both the preprocessing and the compiled program. 
+You can think of PL as being interpreted with heavy LLVM support.
 
 ## 1. Highlights
 
@@ -19,57 +16,79 @@ A function's first operand is moved before the call
   \text{op}(x_1,x_2)\rightarrow x_1\text{ op }(x_2,...)
 \]
 
-More concretely, `concat("h", "i")` is written `"h" concat("i")` and `1+2` is written `1 +(2)`.
+More concretely, imagine the operator "concat" (`+`). We can write it as a function `+("h", "i")` but in PL it is written `"h"+"i"`, just like `1+2`.
 
-> **Note** we don't have order of operations, instead we must explicitly write things like `1+2*3` as `1+(2*(3).)` (we will get into the `.` next) or `2*(3).+(1)`
+> **Note** PL order of operations is always left to right, so we must explicitly write the mathematical expression $1+2\times3$ as `1+(2*3)` or `2*3+1`
 
 
 #### Descriptive Properties
 
-We define additional "properties" by having additional *tokens* after the main *token*. For example, `1 age` describes `1` and `"a.py" python definition` describes `"a.py"`. This is better specificity for operator overloading.
+Additional "properties" can be temporarily bound to *symbols* by sequentially writing *tokens*. For example, `1 age` is the *symbol* `1` with property `age` (there is also a *default property* `integer`). This provides better specificity for operator overloading.
 
 The *default property* `integer` is given to numbers, `string` is given to strings, `identifier` is given to normal words.
 
-Almost every file will have the following line, which says that there is some `"lib/printing.py"` that is a `python definition`, on which we will perform `import`
-```
-"lib/printing.py" python definition import;
+Python is deeply integrated into the language. Important libraries are listed below, most of them are python: 
+
+- `lib/arithmetic.py`: to do math
+- `lib/compile.py`: to compile parts of the code
+- `lib/generate.py`: to vibe code (with safety)
+- `lib/io.py`: to read/write files
+- `lib/list.py`: to have lists
+- `lib/print.py`: to have `print`
+- `lib/string.py`: to have strings
+
+Here's an example:
+```go
+"lib/print.py" python definition import;
+"lib/string.py" python definition import;
+/* `+` and `print` are defined by the imports */
+"Hello, " + "World!" print;
 ```
 
-There is no need to specify who is an operator among all the properties, only those properties that are *resolved* will be interpreted as an operator. A property is *resolved* when it is followed by a `.` or `;` (combined `.,`). Back to `2 *(3). +(1)`, we need to apply `2 *(3)` first (we omitted the `;`).
+In general, *operators* take the *lhs* and a *rhs* (default `()`) as arguments and are marked by a trailing `.` to specify that the argument should be resolved. E.g. `1+(2).` however, for convenience, we can write `1+2` because special characters combine with the next token automatically. We also have `;` as an alias of `.` except it will terminate the expression. In other cases though, the parenthesis (`()`) and dot (`.`) are required.
+
+> Note: in a sense, PL treats *properties* and *operators* the same. The last *property* becomes an operator whenever `.` is present. This includes cases where the *property* is implicit, like `identifier`
 
 #### Variables
 
-This is confusing for most people, but **variables are not implicitly resolved**. For instance, the following code will give `y` the value `x identifier` rather than `1`.
+In PL, **variables do not exist** but instead the operators `declare`, `assign` and `identifier` map *symbols* to values and create an illusion of variables. 
 
+```go
+x integer declare; /* the declare operator creates a map entry for `x` */
+x assign(12); /* the assign operator maps 12 to `x` */
+x. /* this expands into `x identifier.` which resolves into 12 */
 ```
-x assign(1);
-y assign(x);  /* use y assign(x.); instead */
-```
+
+> This is confusing for most people, but **variables are not implicitly resolved**. That is unless some function resolves them for you, which we will see in Operator Definitions and Compilation.
+
 
 #### Operator Definitions
 
+This looks a similar to functions in other languages, except there is no explicit return value and one of the arguments comes before the function/*operator* name.
+
 ```
 base integer power(exp integer) definition{
-	half assign(exp./(2).),
-	remainder assign(exp.-(half).-(half).),
+	half assign(exp./ 2),
+	remainder assign(exp.-(2 * half).),
 	result1 assign(remainder.then(base.)else(1).),
-	result2 assign(base.power(half.).),
-	result1 *(result2.)
+	result2 assign(half.then(base.power(half.).)else(1).),
+	result3 assign(result2.* result2),
+	result1 *(result3.)
 };
 ```
 
-We almost never use curly braces (`{}`) except for select lines within operator definitions. They force lines inside to be *resolved* together. We also use commas here instead of semicolons to prevent us from triggering *resolution*.
+To prevent *resolution* before the arguments to the definition is resolved, the `definition` property will resolve each line for us by replacing any line with a property `identifier` that is not `declare`/`assign`/`definition` and append a `.` at the end of the line. Arguments to properties still need to be manually resolved though.
 
 #### Interpretation, Generation, Compilation
 
 It is probably most convenient to run PL in the interpreted environment, but for larger and more intensive projects, PL can manage AI code generation and code compilation.
 
-```
+```go
 "lib/printing.py" python definition import;
 "lib/generator.py" python definition import;
 
 /* These correspond to litellm fields */
-model    generate configure("provider/model"); /* e.g. "azure/gpt-4o"
+model    generate configure("provider/model"); /* e.g. "azure/gpt-4o" */
 api_base generate configure("...");
 api_key  generate configure("...");
 api_version generate configure("...");
@@ -79,22 +98,28 @@ _ python generate(
 	"implement a function 'fib' that accepts an unsigned integer 'n' and returns the n-th Fibonacci number of the sequence beginning with 1,1,2,... (0-indexed). Your solution should be implemented using DP", 
 	fib
 ) check{
-	0 fib. ==(1),
-	2 fib. ==(2),
+	0 fib. == 1,
+	2 fib. == 2,
 };
 ```
 
 The above will try to generate a function that satisfies all checks, otherwise it will crash. Generated functions are cached and will remain until the prompt changes or a check fails.
 
-```
+```go
 "lib/printing.py" python definition import;
 "lib/compile.py" python definition import;
 
-code do(12 print.) compile("print12.out");
-code do(1 then(5 print.)else(99 print.).) compile("print5.out");
+/* 0 do (...) -> returns 0 */
+0 do (
+	1 then(5 print)else(99 print)
+) compile_to("print5.out");
+
+0 do (
+	"Hello, World!" print
+) compile_to("hello.out");
 ```
 
-The above behaves in a similar fashion, except with binary. Note that the `do(...)` is not resolved.
+The above behaves in a similar fashion, except with binary. Note that a slightly different resolution process than `definition` will apply here (things within parenthesis are resolved automatically here)
 
 ## 2. More Details
 
@@ -140,9 +165,7 @@ parenthesis (`(...)`), brackets (`[...]`), or braces (`{...}`)
 
 - Parenthesis (`(...)`) will accept the expressions inside as-is
 - Brackets (`[...]`) is an alias for `(...).`
-- Braces (`{...}`) will treat all expressions inside as right-to-left definition 
-  (this is used primarily for definition definitions; rule of thumb is that
-  there should be only 1 expression inside braces)
+- Braces (`{...}`) are cooler parenthesis (functions the same)
 
 Has the implicit property `compound`.
 
