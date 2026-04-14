@@ -1,11 +1,13 @@
 "lib/print.py" python definition import;
+"lib/arithmetic.py" python definition import;
 
 base integer power(exp integer) definition{
-	half assign(exp/(2).),
-	remainder assign(exp-(2 *(half).).),
-	result1 assign(remainder then(base)else(1).),
-	result2 assign(half then(base power(half).)else(1).),
-	result1 *(result2)
+	half assign(exp./ 2),
+	remainder assign(exp.-(2 * half).),
+	result1 assign(remainder.then(base.)else(1).),
+	result2 assign(half.then(base.power(half.).)else(1).),
+	result3 assign(result2.* result2),
+	result1 *(result3.)
 };
 
 x integer one_or_the_other(val integer) definition{

@@ -115,7 +115,9 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
                 # '[]' is an alias for '().'
                 cur_expr.properties.append(Property(prop.property.create_renamed('.')))
         elif tokens[i].s in separators:
-            cur_expr.properties.append(Property(tokens[i], False, []))
+            if tokens[i].s == ';':
+                # ';' is an alias for '.'
+                cur_expr.properties.append(Property(tokens[i].create_renamed('.')))
             tree.append(cur_expr)
             # see if we can start a new symbol
             cur_expr = None

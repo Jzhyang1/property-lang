@@ -36,7 +36,7 @@ class ArithmeticSubtractDefinition(Definition):
         res_properties = [
             ires if property == idst else property for property in lhs.properties
         ]
-        return Expression(lhs.symbol.create_renamed('+'), res_properties)
+        return Expression(lhs.symbol.create_renamed('-'), res_properties)
 
 @builtin_definition
 class ArithmeticMultiplyDefinition(Definition):
@@ -47,14 +47,14 @@ class ArithmeticMultiplyDefinition(Definition):
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
         if (ival := rhs.try_get_property('integer')) is None or \
             (idst := lhs.try_get_property('integer')) is None:
-            raise CompileError(f"unable to multiply {rhs} to {lhs}")
+            raise CompileError(f"unable to multiply {rhs} to {lhs}", anchor=rhs.symbol)
         ires = idst.copy()
         ires.is_association = True
         ires.associated_value *= ival.associated_value
         res_properties = [
             ires if property == idst else property for property in lhs.properties
         ]
-        return Expression(lhs.symbol.create_renamed('+'), res_properties)
+        return Expression(lhs.symbol.create_renamed('*'), res_properties)
 
 @builtin_definition
 class ArithmeticDivideDefinition(Definition):
@@ -74,7 +74,7 @@ class ArithmeticDivideDefinition(Definition):
         res_properties = [
             ires if property == idst else property for property in lhs.properties
         ]
-        return Expression(lhs.symbol.create_renamed('+'), res_properties)
+        return Expression(lhs.symbol.create_renamed('/'), res_properties)
 
 @builtin_definition
 class ArithmeticEqualDefinition(Definition):
