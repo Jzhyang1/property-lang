@@ -2,12 +2,12 @@
 "lib/arithmetic.py" python definition import;
 
 base integer power(exp integer) definition{
-	half assign(exp./ 2),
-	remainder assign(exp.-(2 * half).),
-	result1 assign(remainder.then(base.)else(1).),
-	result2 assign(half.then(base.power(half.).)else(1).),
-	result3 assign(result2.* result2),
-	result1 *(result3.)
+	half assign [ exp / 2 ];
+	remainder assign [ exp.-(2 * half) ];
+	result1 assign [ remainder.then[base]else[1] ];
+	result2 assign [ half.then[base.power[half]]else[1] ];
+	result3 assign [ result2 * result2 ];
+	result1 * result3;
 };
 
 x integer one_or_the_other(val integer) definition{
@@ -20,12 +20,12 @@ x integer one_or_the_other(val integer) definition{
 	to go forward and simply delay execution for the whole block.
 	In fact we can keep the semicolons.
 	*/
-	x then(val)else(0)
+	x.then[val]else[0];
 };
 
 1 one_or_the_other("foo").print;
 0 one_or_the_other("bar").print;
 
 2 power(1).print;
-2 power(3).print;
+2 power(2).print;
 2 power(5).print;

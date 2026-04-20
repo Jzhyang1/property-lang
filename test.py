@@ -1,5 +1,6 @@
 from definitions import CompileError
-from main import tokenize, build_tree, Scope, global_definitions, resolve_expression
+from constants import resolve
+from main import tokenize, build_tree, Scope, global_definitions, expression_resolve_all
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
@@ -13,10 +14,10 @@ if __name__ == "__main__":
     scope = Scope(local_defns=global_definitions)
     try:
         for expr in built:
-            resolved = resolve_expression(expr, scope)
-            print(expr, '->', resolved)
+            preprocessed = expression_resolve_all(expr, scope, resolve)
+            print(expr, '->', preprocessed)
     except CompileError as e:
-        pass
+        print("Compile error:", e)
 
     print('----------')
     for var in scope.local_vars:

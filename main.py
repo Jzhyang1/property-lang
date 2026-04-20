@@ -1,6 +1,6 @@
-from typing import Callable
+from typing import Callable, Collection
 
-from constants import Property, Expression, Definition, Scope
+from constants import Property, Expression, Definition, Scope, immediate_resolve, resolve
 from definitions import global_definitions, make_global_vars, pwarning, CompileError
 from tokenizer import tokenize, build_tree
 
@@ -15,34 +15,11 @@ class UserDefinedDefinition(Definition):
         new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
         last = expr
         for local_expr in self.body:
-            local_expr = resolve_vars(local_expr, new_scope)
-            last = resolve_last_property(local_expr, new_scope)
+            last = expression_resolve_all(local_expr, new_scope, resolve)
         return last
 
 
 # Begin function definitions
-
-def resolve_vars(expr: Expression, scope: Scope) -> Expression:
-    '''
-    Resolves the expression's identifier property recursively within all properties.
-    Returns the expression with all before the identifier property replaced with the resolved expression
-    * this is a single-pass resolution, so any identifier properties introduced by resolution will not be resolved
-    '''
-    # Skip declare, assign, and definition
-    exempt = {'declare', 'assign', 'definition'}
-    if len(expr.properties) > 0 and expr.properties[-1].property.s in exempt:
-        return expr
-
-    var_expr, remaining_properties = expr.pop_properties_after('identifier')
-    if remaining_properties is None:
-        # Not an identifier
-        return expr
-    # Resolve the identifier if the variable exists
-    if scope.var_lookup(var_expr.symbol.s) is None:
-        pwarning(f"variable {var_expr.symbol.s} not found in scope", anchor=var_expr.symbol)
-        return expr
-    res = resolve_last_property(var_expr, scope)    # Expand the variable
-    return Expression(res.symbol, res.properties + remaining_properties)
 
 def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expression:
     '''
@@ -78,7 +55,8 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expre
     _, best_match = matches_sets[0]
     
     # forward resolve
-    args = [resolve_expression(local_expr, scope) for local_expr in prop.compound_properties]
+    who_to_resolve = immediate_resolve if prop.start_char == '{' else resolve
+    args = [expression_resolve_all(local_expr, scope, who_to_resolve) for local_expr in prop.compound_properties]
 
     # apply the best match
     return best_match.apply(expr, args, scope, prop)
@@ -93,19 +71,27 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     if len(properties) == 0:
         raise CompileError("cannot resolve property on expression with no properties", anchor=expr.symbol)
     *properties, prop = properties
+    if prop in resolve:
+        # Go one level down
+        expr = resolve_last_property(Expression(expr.symbol, properties), scope)
     return resolve_property_on(Expression(expr.symbol, properties), prop, scope)
 
-def resolve_expression(expr: Expression, scope: Scope) -> Expression:
+def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collection[str]) -> Expression:
     '''
-    resolves all properties marked for resolution in expr.
-    `before_resolve` is forwarded to resolve_last_property
+    Resolves all properties marked for resolution in expr.
+    In general, expression_resolve_all is called only when resolving definitions,
+    whereas expression_resolve_immediates is called everywhere else.
     '''
     expr_copy = Expression(expr.symbol, [])
     for prop in expr.properties:
-        if prop.property.s in ['.', ';']:
+        if prop.is_compound:
+            prop = prop.copy()
+            prop.compound_properties = [expression_resolve_all(p, scope, immediate_resolve) for p in prop.compound_properties]
+
+        if prop.property.s in resolve_these:
             expr_copy = resolve_last_property(expr_copy, scope)
             expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
-            assert not any(p.property.s in ['.', ';'] for p in expr_copy.properties)
+            assert not any(p.property.s in resolve_these for p in expr_copy.properties)
         else:
             expr_copy.properties.append(prop)
     return expr_copy
@@ -120,4 +106,5 @@ if __name__ == "__main__":
     built, i = build_tree(tokenize(file))
     scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
     for expr in built:
-        resolve_expression(expr, scope)
+        expr = expression_resolve_all(expr, scope, resolve)
+        # expr = expression_resolve_all(expr, scope)

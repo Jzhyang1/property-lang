@@ -1,6 +1,6 @@
 from typing import Any, Callable
 
-special_symbols = set('~!@#$%^&*/-+=<>|?:')
+special_symbols = set('~@#$%^&*/-+=<>|?:')
 start_comment = '/*'
 end_comment = '*/'
 
@@ -22,6 +22,9 @@ parentheses = {
 separators = {
     ',', ';'
 }
+
+immediate_resolve = ['!']
+resolve = ['.'] + immediate_resolve
 
 class Token:
     def __init__(self, s: str, file: str, row: int, col: int, token_type: int):

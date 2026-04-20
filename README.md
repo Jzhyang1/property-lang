@@ -8,6 +8,14 @@ You can think of PL as being interpreted with heavy LLVM support.
 
 ## 1. Highlights
 
+#### Descriptive Properties
+
+*Properties* can be added to *symbols* as trailing *tokens*. For example, `1 age` is the *symbol* `1` with *property* `age` (there is also a *default property* `integer`). This provides better specificity for operator overloading.
+
+- numbers have default property `integer`
+- strings have default property `string` 
+- normal symbols have default property `identifier`
+
 #### Operators
 
 A function's first operand is moved before the call
@@ -21,11 +29,32 @@ More concretely, imagine the operator "concat" (`+`). We can write it as a funct
 > **Note** PL order of operations is always left to right, so we must explicitly write the mathematical expression $1+2\times3$ as `1+(2*3)` or `2*3+1`
 
 
-#### Descriptive Properties
+In general, *operators* take the *lhs* and a *rhs* (default `()`) as arguments and are marked by a trailing dot (`.`/`;`/`!`) to specify that the argument should be resolved. E.g. `1+(2).` PL treats *properties* and *operators* the same. The last *property* becomes an operator whenever a dot is present. This includes cases where the *property* is implicit, like `identifier`
 
-Additional "properties" can be temporarily bound to *symbols* by sequentially writing *tokens*. For example, `1 age` is the *symbol* `1` with property `age` (there is also a *default property* `integer`). This provides better specificity for operator overloading.
+> Note: for convenience, we can write `1+2` because special characters combine with the next token automatically to form `1.+(2.)`. In non special-character cases though, the parenthesis (`()`) and dot (`.`/`;`/`!`) are required.
 
-The *default property* `integer` is given to numbers, `string` is given to strings, `identifier` is given to normal words.
+The difference between the dots are as follows:
+- `.` marks that the expression up to this point should be resolved before use. This is delayed
+  for expressions in compound properties until the compound property is resolved.
+- `;` is an alias of `.` except it will terminate the expression.
+- `!` marks that the expression up to this point should be resolved upon parse (this is useful
+  for compile-time optimization).
+
+
+#### Variables
+
+In PL, **variables do not exist** but instead the operators `declare`, `assign` and `identifier` map *symbols* to values and create an illusion of variables. 
+
+```go
+x integer declare; /* the declare operator creates a map entry for `x` */
+x assign(12); /* the assign operator maps 12 to `x` */
+x. /* this expands into `x identifier.` which resolves into 12 */
+```
+
+> This is confusing for most people, but **variables are not implicitly resolved**. There must always be a dot following a variable if the value is desired.
+
+
+#### Libraries
 
 Python is deeply integrated into the language. Important libraries are listed below, most of them are python: 
 
@@ -45,39 +74,31 @@ Here's an example:
 "Hello, " + "World!" print;
 ```
 
-In general, *operators* take the *lhs* and a *rhs* (default `()`) as arguments and are marked by a trailing `.` to specify that the argument should be resolved. E.g. `1+(2).` however, for convenience, we can write `1+2` because special characters combine with the next token automatically. We also have `;` as an alias of `.` except it will terminate the expression. In other cases though, the parenthesis (`()`) and dot (`.`) are required.
-
-> Note: in a sense, PL treats *properties* and *operators* the same. The last *property* becomes an operator whenever `.` is present. This includes cases where the *property* is implicit, like `identifier`
-
-#### Variables
-
-In PL, **variables do not exist** but instead the operators `declare`, `assign` and `identifier` map *symbols* to values and create an illusion of variables. 
-
-```go
-x integer declare; /* the declare operator creates a map entry for `x` */
-x assign(12); /* the assign operator maps 12 to `x` */
-x. /* this expands into `x identifier.` which resolves into 12 */
-```
-
-> This is confusing for most people, but **variables are not implicitly resolved**. That is unless some function resolves them for you, which we will see in Operator Definitions and Compilation.
-
-
 #### Operator Definitions
 
 This looks a similar to functions in other languages, except there is no explicit return value and one of the arguments comes before the function/*operator* name.
 
-```
+```Go
 base integer power(exp integer) definition{
-	half assign(exp./ 2),
-	remainder assign(exp.-(2 * half).),
-	result1 assign(remainder.then(base.)else(1).),
-	result2 assign(half.then(base.power(half.).)else(1).),
-	result3 assign(result2.* result2),
-	result1 *(result3.)
+	half assign [ exp / 2 ];
+	remainder assign [ exp.-(2 * half) ];
+	result1 assign [ remainder.then[base]else[1] ];
+	result2 assign [ half.then[base.power[half]]else[1] ];
+	result3 assign [ result2 * result2 ];
+	result1 * result3;
 };
 ```
 
-To prevent *resolution* before the arguments to the definition is resolved, the `definition` property will resolve each line for us by replacing any line with a property `identifier` that is not `declare`/`assign`/`definition` and append a `.` at the end of the line. Arguments to properties still need to be manually resolved though.
+To prevent *resolution* before the arguments to the definition is resolved, we use `{}`. We can manually force properties to get resolved by using `!` such as in the following case:
+
+```Go
+x assign(2);
+_ print2 definition{
+  x!print;  /* this becomes `2 print` */
+};
+x assign(3);  /* x is no longer 2 */
+_ print2; /* still prints 2 */
+```
 
 #### Interpretation, Generation, Compilation
 
@@ -146,7 +167,7 @@ Has the implicit property `operator`
 
 Must be a compound property. If there is no compound list following the operator,
 the next token will be taken as the sole expression of the compound list and a `.`
-will be added to the expression and the operator. I.E. `1+x` will be `1 +(x.).`
+will be added to the lhs and rhs. I.E. `1+x` will be `1.+(x.)`
 
 **Integer**
 Any integer number
@@ -163,9 +184,9 @@ A token followed by a comma-separated series of token sequences
 enclosed in one of the following:
 parenthesis (`(...)`), brackets (`[...]`), or braces (`{...}`)
 
-- Parenthesis (`(...)`) will accept the expressions inside as-is
-- Brackets (`[...]`) is an alias for `(...).`
-- Braces (`{...}`) are cooler parenthesis (functions the same)
+- Parenthesis (`(expressions)`) will accept the expressions inside as-is
+- Brackets (`[expressions]`) is an alias for `(expressions.)`
+- Braces (`{expressions}`) will not resolve any `.` in expressions
 
 Has the implicit property `compound`.
 
@@ -178,7 +199,8 @@ but they are most useful when they are resolved.
 *Unknown properties will raise a warning*.
 
 We mentioned the property removal. Here are the most important properties:
-- `.`: resolves the last property
+- `!`: immediately resolves the last property
+- `.`: resolve the last property
 - `;`: resolve the last property (used as `.,`)
 - `declare`: `identifier`: resolves by defining a variable with the symbol; need to 
   resolve future occurances of the symbol to use the variable.

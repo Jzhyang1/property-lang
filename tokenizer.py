@@ -112,8 +112,9 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
             compound_tree, i = build_tree(tokens, i+1, parentheses[tokens[i].s])
             prop.compound_properties = compound_tree
             if prop.start_char == '[':
-                # '[]' is an alias for '().'
-                cur_expr.properties.append(Property(prop.property.create_renamed('.')))
+                # '[]' is an alias for '(.)'
+                for e in prop.compound_properties:
+                    e.properties.append(Property(prop.property.create_renamed('.')))
         elif tokens[i].s in separators:
             if tokens[i].s == ';':
                 # ';' is an alias for '.'
@@ -128,13 +129,14 @@ def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expressio
               ):
             # peek ahead to see if we need to combine with the next token
             # this happens because operator followed by identifier/literal is an
-            # alias for operator(identifier/literal.)
+            # alias for `.operator(identifier/literal.)`
             arg_expr = build_tree_symbol(tokens[i+1])
             arg_expr.properties.append(Property(tokens[i+1].create_renamed('.')))
 
+            cur_expr.properties.append(Property(tokens[i+1].create_renamed('.')))
             cur_expr.properties.append(Property(tokens[i], True, [arg_expr], start_char='('))
             cur_expr.properties.append(Property(tokens[i+1].create_renamed('.')))
-            i += 2  # we consumed two tokens
+            i += 2  # we consumed two tokens (op and arg)
         else:
             # if len(properties) > 1 and not properties[-1].is_compound and
             cur_expr.properties.append(Property(tokens[i], False, []))
