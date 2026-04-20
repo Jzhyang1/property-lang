@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 from typing_extensions import Literal
 
 import llvmlite.ir as ir
@@ -6,6 +6,7 @@ import llvmlite.binding as llvm
 
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
+    import constants
     from definitions import builtin_definition, unary_apply, binary_apply, multi_apply, pwarning, CompileError
 
 llvm.initialize_native_target()
@@ -51,13 +52,42 @@ def set_compile_construct(anchor: Token, scope: Scope, name: CompileConstruct, v
         properties=[Property(anchor.create_renamed('compile'), is_association=True, associated_value=value)]
     )
 
+def compile_last_property(expr: Expression, scope: Scope) -> Expression:
+    from main import resolve_property_on
+    compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope)
+    return compiled_expr
+
+def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
+    '''
+    Compiles all properties marked for resolution in expr.
+    '''
+    from main import expression_resolve_all
+    expr_copy = Expression(expr.symbol, [])
+    for prop in expr.properties:
+        if prop.is_compound:
+            prop = prop.copy()
+            prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
+
+        if prop.property.s in constants.resolve:
+            print('compiling', expr_copy, 'because of property', prop)  # Debug print
+            expr_copy = compile_last_property(expr_copy, scope)
+            expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
+            assert not any(p.property.s in constants.resolve for p in expr_copy.properties)
+        else:
+            expr_copy.properties.append(prop)
+    return expr_copy
+
+
 def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
     compile_prop = expr.try_get_property('compile')
     if compile_prop is None:
-        # Have not been compiled yet, compile now
-        from main import resolve_property_on
-        compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope)
-        compile_prop = compiled_expr.force_get_property('compile')
+        # There are a few literal special cases that we want to compile without resolve
+        # These are integers and strings
+        if (int_prop := expr.try_get_property('integer')) is not None:
+            return ir.Constant(ir.IntType(64), int_prop.associated_value or 0)
+        elif (str_prop := expr.try_get_property('string')) is not None:
+            return CompileStringDefinition.create_string(str_prop.associated_value, scope)
+        raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
 
 # Builtin types
@@ -79,29 +109,31 @@ class CompileStringDefinition(Definition):
     symbol = 'compile'
     property_names = ['string']
     # We map each (__IMPORT_PATH__, string) pair to the compiled result of the string, so that we can reuse the compiled result if the same string is compiled again in the same file
-    compiled_cache: dict[tuple[str, str], Expression] = {}
+    compiled_cache: dict[tuple[str, str], ir.Value] = {}
 
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        sval = lhs.force_get_property('string')
-        file_str: str = get_compile_construct(scope, '__IMPORT_PATH__')
-        cache_key = (file_str, sval.associated_value)
+    @classmethod
+    def create_string(cls, str_val: str, scope: Scope) -> ir.Value:
+        file_str = get_compile_construct(scope, '__IMPORT_PATH__')
+        cache_key = (file_str, str_val)
         if cache_key in CompileStringDefinition.compiled_cache:
             return CompileStringDefinition.compiled_cache[cache_key]
         
         shared_str = ir.GlobalVariable(
             get_compile_construct(scope, '__MODULE__'), 
-            ir.ArrayType(ir.IntType(8), len(sval.associated_value) + 1), 
+            ir.ArrayType(ir.IntType(8), len(str_val) + 1), 
             name=f'str_{len(CompileStringDefinition.compiled_cache)}'
         )
         shared_str.linkage = 'internal'
         shared_str.global_constant = True
-        shared_str.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(sval.associated_value) + 1), bytearray((sval.associated_value + '\0').encode("utf8"))) # type: ignore
+        shared_str.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val) + 1), bytearray((str_val + '\0').encode("utf8"))) # type: ignore
+        CompileStringDefinition.compiled_cache[cache_key] = shared_str
+        return shared_str
 
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        shared_str = CompileStringDefinition.create_string(lhs.force_get_property('string').associated_value, scope)
         compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=shared_str)
-        result_expr = lhs.create_with_property(compiled_prop)
-        CompileStringDefinition.compiled_cache[cache_key] = result_expr
-        return result_expr
+        return lhs.create_with_property(compiled_prop)
 
 # Operations on built-in types
 
@@ -118,7 +150,8 @@ class CompileBuiltinBinaryDefinition(Definition):
         if len(prop.compound_properties) == 0:
             raise CompileError(f"property {property_name} requires an argument, got none")
         for p in prop.compound_properties:
-            rhs_val = get_compiled(p, scope)
+            rhs_expr = expression_compile_all(p, scope)
+        rhs_val = get_compiled(rhs_expr, scope)
         res = getattr(builder, self.op_name)(lhs_val, rhs_val, f'{self.op_name}_tmp')
         compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.create_with_property(compiled_prop)
@@ -204,8 +237,10 @@ class CompilePrintIntegerDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lhs, _ = lhs.discard_properties_after('print')
+        print(f'compiling print of integer {lhs}')  # Debug print
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
+        print(f'lhs_val: {lhs_val}')  # Debug print
         print_res = builder.call(get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
         compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
         return lhs.create_with_property(compiled_prop)
@@ -304,7 +339,8 @@ class CompileThenDefinition(Definition):
         if len(body_prop.compound_properties) == 0:
             raise CompileError('`then` block cannot be empty')
         for expr in body_prop.compound_properties:
-            body_val = get_compiled(expr, scope)
+            body_expr = expression_compile_all(expr, scope)
+        body_val = get_compiled(body_expr, scope)
         builder.branch(merge_block) # go back to the main flow
         # Update then_block reference in case get_compiled created new blocks
         then_block = builder.block
@@ -339,7 +375,8 @@ class CompileElseDefinition(Definition):
         if len(body_prop.compound_properties) == 0:
             raise CompileError('`else` block cannot be empty')
         for expr in body_prop.compound_properties:
-            body_val = get_compiled(expr, scope)
+            body_expr = expression_compile_all(expr, scope)
+        body_val = get_compiled(body_expr, scope)
         builder.branch(merge_block) # go back to the main flow
         # Update else_block reference in case get_compiled created new blocks
         else_block = builder.block
@@ -377,7 +414,8 @@ class CompileThenElseDefinition(Definition):
         if len(then_body_prop.compound_properties) == 0:
             raise CompileError('`then` block cannot be empty')
         for expr in then_body_prop.compound_properties:
-            then_val = get_compiled(expr, scope)
+            then_expr = expression_compile_all(expr, scope)
+        then_val = get_compiled(then_expr, scope)
         builder.branch(merge_block) # go back to the main flow
         then_block = builder.block  # Update then_block reference in case get_compiled created new blocks
 
@@ -385,7 +423,8 @@ class CompileThenElseDefinition(Definition):
         if len(else_body_prop.compound_properties) == 0:
             raise CompileError('`else` block cannot be empty')
         for expr in else_body_prop.compound_properties:
-            else_val = get_compiled(expr, scope)
+            else_expr = expression_compile_all(expr, scope)
+        else_val = get_compiled(else_expr, scope)
         builder.branch(merge_block) # go back to the main flow
         else_block = builder.block  # Update else_block reference in case get_compiled created new blocks
 
@@ -403,9 +442,8 @@ class CompileDoDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lhs, body_prop = lhs.discard_properties_after('do')
-        builder = get_compile_construct(scope, '__BUILDER__')
         for expr in body_prop.compound_properties:
-            get_compiled(expr, scope)
+            expression_compile_all(expr, scope)
         res = get_compiled(lhs, scope)
         compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.create_with_property(compiled_prop)
@@ -437,8 +475,11 @@ class CompileDefinition(Definition):
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
 
-        compiled_expr = get_compiled(lhs, compile_scope)
-        builder.ret(compiled_expr)
+        from main import resolve_property_on
+        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope)
+        print(lhs, 'compiled to', compiled_expr)  # Debug print
+        compiled_val = get_compiled(compiled_expr, compile_scope)
+        builder.ret(compiled_val)
 
         # Output compiled binary file
         llvm_ir = str(module)

@@ -5,6 +5,7 @@ from typing import Any, Callable, NoReturn
 from functools import wraps
 
 from constants import Definition, Scope, Expression, Property, Token, token_types
+import constants
 
 __LANG__ = '0.0.1'
 global_definitions: dict[str, list[Definition]] = {}
@@ -20,9 +21,11 @@ def make_global_vars(file: str) -> dict[str, Expression]:
     return global_vars
 
 class CompileError(Exception):
-    def __init__(self, *msg, anchor: Token|None = None):
+    def __init__(self, *msg, anchor: Token|None = None, child_error: Exception|AssertionError|None = None):
         header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}:"
-        super().__init__(header, *msg)
+        # If there is a child error, we include its args in our message
+        child_error_messages = child_error.args if child_error is not None else ()
+        super().__init__(header, *msg, *child_error_messages)
 
 def pwarning(*msg, anchor:Token|None=None):
     header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}:"
