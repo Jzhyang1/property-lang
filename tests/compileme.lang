@@ -11,10 +11,10 @@
 ] compile_to("print12.out");
 
 /* 0 do (...) -> this returns 0 */
-0 do (
-	1 then(5 print)else(99 print)
-) compile_to("print5.out");
+0 do [
+	1 then[5 print]else[99 print]
+ ] compile_to("print5.out");
 
-0 do (
+0 do [
 	"Hello, World!" print
-) compile_to("hello.out");
+ ] compile_to("hello.out");

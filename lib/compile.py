@@ -145,7 +145,6 @@ class CompileBuiltinBinaryDefinition(Definition):
         property_name = self.property_names[-1]
         lhs, prop = lhs.discard_properties_after(property_name)
         builder = get_compile_construct(scope, '__BUILDER__')
-        print(f'compiling {property_name} with lhs {lhs}')  # Debug print
         lhs_val = get_compiled(lhs, scope)
         if len(prop.compound_properties) == 0:
             raise CompileError(f"property {property_name} requires an argument, got none")
@@ -237,10 +236,8 @@ class CompilePrintIntegerDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lhs, _ = lhs.discard_properties_after('print')
-        print(f'compiling print of integer {lhs}')  # Debug print
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
-        print(f'lhs: {lhs}, lhs_val: {lhs_val}')  # Debug print
         print_res = builder.call(get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
         return lhs.replace_property('compile', compile_prop)
