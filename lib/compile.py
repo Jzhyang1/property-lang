@@ -69,7 +69,6 @@ def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
             prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
 
         if prop.property.s in constants.resolve:
-            print('compiling', expr_copy, 'because of property', prop)  # Debug print
             expr_copy = compile_last_property(expr_copy, scope)
             expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
             assert not any(p.property.s in constants.resolve for p in expr_copy.properties)
@@ -100,9 +99,9 @@ class CompileIntegerDefinition(Definition):
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         # TODO compile to an actual binary instead of just evaluating the expression
         ival = lhs.force_get_property('integer')
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True)
-        compiled_prop.associated_value = ir.Constant(ir.IntType(64), ival.associated_value or 0)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True)
+        compile_prop.associated_value = ir.Constant(ir.IntType(64), ival.associated_value or 0)
+        return lhs.create_with_property(compile_prop)
     
 @builtin_definition
 class CompileStringDefinition(Definition):
@@ -132,8 +131,8 @@ class CompileStringDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         shared_str = CompileStringDefinition.create_string(lhs.force_get_property('string').associated_value, scope)
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=shared_str)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=shared_str)
+        return lhs.create_with_property(compile_prop)
 
 # Operations on built-in types
 
@@ -146,6 +145,7 @@ class CompileBuiltinBinaryDefinition(Definition):
         property_name = self.property_names[-1]
         lhs, prop = lhs.discard_properties_after(property_name)
         builder = get_compile_construct(scope, '__BUILDER__')
+        print(f'compiling {property_name} with lhs {lhs}')  # Debug print
         lhs_val = get_compiled(lhs, scope)
         if len(prop.compound_properties) == 0:
             raise CompileError(f"property {property_name} requires an argument, got none")
@@ -153,8 +153,8 @@ class CompileBuiltinBinaryDefinition(Definition):
             rhs_expr = expression_compile_all(p, scope)
         rhs_val = get_compiled(rhs_expr, scope)
         res = getattr(builder, self.op_name)(lhs_val, rhs_val, f'{self.op_name}_tmp')
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
+        return lhs.replace_property('compile', compile_prop)
 
 class CompileBuiltinCompareDefinition(CompileBuiltinBinaryDefinition):
     cmp_type: str  # defined in subclasses, e.g. '==', '<', etc.
@@ -225,8 +225,8 @@ class CompileIntegerLogicalNotDefinition(Definition):
         zero = ir.Constant(ir.IntType(64), 0)
         cmp_res = builder.icmp_signed('!=', lhs_val, zero, 'logical_not_tmp')
         ires = builder.zext(cmp_res, ir.IntType(64), 'bool_to_int_tmp')
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=ires)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=ires)
+        return lhs.replace_property('compile', compile_prop)
 
 # Printing
 
@@ -240,11 +240,11 @@ class CompilePrintIntegerDefinition(Definition):
         print(f'compiling print of integer {lhs}')  # Debug print
         builder = get_compile_construct(scope, '__BUILDER__')
         lhs_val = get_compiled(lhs, scope)
-        print(f'lhs_val: {lhs_val}')  # Debug print
+        print(f'lhs: {lhs}, lhs_val: {lhs_val}')  # Debug print
         print_res = builder.call(get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
-        return lhs.create_with_property(compiled_prop)
-    
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
+        return lhs.replace_property('compile', compile_prop)
+
 @builtin_definition
 class CompilePrintStringDefinition(Definition):
     symbol = 'compile'
@@ -257,8 +257,8 @@ class CompilePrintStringDefinition(Definition):
         puts = get_compile_construct(scope, '__MODULE__').get_global('puts')
         str_arg = builder.bitcast(lhs_val, ir.PointerType(ir.IntType(8)))
         print_res = builder.call(puts, [str_arg], 'print_tmp')
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
+        return lhs.replace_property('compile', compile_prop)
 
 # Variables
 
@@ -273,14 +273,14 @@ class CompileIdentifierDefinition(Definition):
             # Create a global variable if it doesn't exist
             var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=lhs.symbol.s)
             var.linkage = 'internal'
-            compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-            res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compiled_prop)
+            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
+            res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compile_prop)
             return res
         else:
             # Add the property to the existing variable expression if it exists
             var = var_expr.force_get_property('compile').associated_value
-            compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-            return lhs.create_with_property(compiled_prop)
+            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
+            return lhs.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileDeclareDefinition(Definition):
@@ -293,8 +293,8 @@ class CompileDeclareDefinition(Definition):
             raise CompileError('non-integer variables not implemented yet')
         var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=lhs.symbol.s)
         var.linkage = 'internal'
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-        res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
+        res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compile_prop)
         return res
     
 @builtin_definition
@@ -311,7 +311,8 @@ class CompileAssignDefinition(Definition):
         rhs_val = get_compiled(rhs, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
         compile_res = builder.store(rhs_val, var)
-        return lhs.create_with_property(Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=compile_res))
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=compile_res)
+        return lhs.replace_property('compile', compile_prop)
 
 # Conditionals
 
@@ -350,8 +351,9 @@ class CompileThenDefinition(Definition):
         phi = builder.phi(ir.IntType(64), 'iftmp')
         phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the 0 (cond_val)
         phi.add_incoming(body_val, then_block)  # If we came from then_block, result is the body_val
-        return lhs.create_with_property(Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi))
-    
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
+        return lhs.replace_property('compile', compile_prop)
+
 @builtin_definition
 class CompileElseDefinition(Definition):
     symbol = 'compile'
@@ -386,7 +388,8 @@ class CompileElseDefinition(Definition):
         phi = builder.phi(ir.IntType(64), 'iftmp')
         phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the cond_val
         phi.add_incoming(body_val, else_block)  # If we came from else_block, result is the body_val
-        return lhs.create_with_property(Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi))
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
+        return lhs.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileThenElseDefinition(Definition):
@@ -433,7 +436,8 @@ class CompileThenElseDefinition(Definition):
         phi = builder.phi(ir.IntType(64), 'iftmp')
         phi.add_incoming(then_val, then_block)  # If we came from then_block, result is the then_val
         phi.add_incoming(else_val, else_block)  # If we came from else_block, result is the body_val
-        return lhs.create_with_property(Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi))
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
+        return lhs.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileDoDefinition(Definition):
@@ -445,8 +449,8 @@ class CompileDoDefinition(Definition):
         for expr in body_prop.compound_properties:
             expression_compile_all(expr, scope)
         res = get_compiled(lhs, scope)
-        compiled_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
-        return lhs.create_with_property(compiled_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
+        return lhs.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileDefinition(Definition):
@@ -477,7 +481,6 @@ class CompileDefinition(Definition):
 
         from main import resolve_property_on
         compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope)
-        print(lhs, 'compiled to', compiled_expr)  # Debug print
         compiled_val = get_compiled(compiled_expr, compile_scope)
         builder.ret(compiled_val)
 

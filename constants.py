@@ -54,7 +54,7 @@ class Property:
         self.start_char = start_char
     def __str__(self) -> str:
         if self.is_association:
-            return str(self.associated_value)
+            return f'{self.property}({self.associated_value})'
         return str(self.property) + (self.start_char or '?') + ','.join(map(str, self.compound_properties)) + parentheses.get(self.start_char, '?') if self.is_compound else str(self.property)
     def __repr__(self) -> str:
         return str(self)
@@ -82,6 +82,10 @@ class Expression:
     def create_with_property(self, property: Property) -> 'Expression':
         new_expr = Expression(self.symbol, self.properties.copy())
         new_expr.properties.append(property)
+        return new_expr
+    def replace_property(self, to_replace: str, new_property: Property) -> 'Expression':
+        new_expr = Expression(self.symbol, [property for property in self.properties if property.property != to_replace])
+        new_expr.properties.append(new_property)
         return new_expr
     def discard_properties_after(self, prop_str: str) -> tuple['Expression', Property]:
         '''

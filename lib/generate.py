@@ -2,6 +2,7 @@ import os
 from typing import Any
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
+    import constants
     from definitions import builtin_definition, binary_apply, multi_apply, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
 
 
@@ -86,13 +87,13 @@ class CheckDefinition(Definition):
             properties.append(p)
             if p == generate: break
         new_lhs = Expression(lhs.symbol, properties)
-        from main import resolve_last_property
+        from main import expression_resolve_all, resolve_last_property
         # repeat until all checks pass
         for _ in range(10): # max 10 iterations to prevent infinite loops
             resolved = resolve_last_property(new_lhs, scope)
     
             for condition in args:
-                condition_evaluated = resolve_last_property(condition, scope)
+                condition_evaluated = expression_resolve_all(condition, scope, constants.resolve)
                 if (val := condition_evaluated.try_get_property('integer')) is None:
                     pwarning(f'Condition {condition} did not evaluate to an integer, got {condition_evaluated}')
                 elif val.associated_value == 0:

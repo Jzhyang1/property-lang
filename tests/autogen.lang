@@ -1,13 +1,14 @@
 "lib/print.py" python definition import;
 "lib/generate.py" python definition import;
+"lib/arithmetic.py" python definition import;
 
 model generate configure("ollama/llama3.1:8b");
 api_base generate configure("http://localhost:11434");
 
 _ python generate("cache/fib.py", "implement a function 'fib' that accepts an unsigned integer 'n' and returns the n-th Fibonacci number of the sequence beginning with 1,1,2,... (0-indexed). Your solution should be implemented using DP", fib) 
 check{
-	0 fib. == 1,
-	2 fib. == 2,
+	0 fib == 1;
+	2 fib == 2;
 };
 
 0 fib.print;
