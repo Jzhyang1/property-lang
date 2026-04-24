@@ -114,9 +114,9 @@ class Expression:
         return Expression(self.symbol, properties[:i+1]), properties[i+1:]
 
 class Definition:
-    def __init__(self, placeholder_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
                  body: list[Expression]):
-        self.placeholder_symb = placeholder_symb
+        self.prop_symb = prop_symb
         self.properties = properties
         self.is_compound = is_compound
         self.params = params
@@ -128,7 +128,7 @@ class Definition:
         '''
         raise NotImplementedError()
     def __repr__(self):
-        return str(self.placeholder_symb) + ':' + str(self.properties)
+        return str(self.prop_symb) + ':' + str(self.properties)
 
 # Scoping
 class Scope:
@@ -145,9 +145,13 @@ class Scope:
         return self.local_vars[var_name] if var_name in self.local_vars else \
             self.parent.var_lookup(var_name) if self.parent is not None else None
     def defn_lookup(self, var_name: str) -> list[Definition]:
-        return self.local_defns[var_name] if var_name in self.local_defns else \
-            self.parent.defn_lookup(var_name) if self.parent is not None else []
+        local_found = self.local_defns[var_name] if var_name in self.local_defns else []
+        parent_found = self.parent.defn_lookup(var_name) if self.parent is not None else []
+        return local_found + parent_found
     def force_var_lookup(self, var_name: str) -> Expression:
         var = self.var_lookup(var_name)
         assert var is not None
         return var
+    
+    def __str__(self) -> str:
+        return f'Scope(vars={self.local_vars}, defns={self.local_defns}, parent={self.parent})'

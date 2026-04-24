@@ -9,7 +9,7 @@ class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         scope = scope.parent or scope
         new_varscope = {
-            self.placeholder_symb: expr
+            self.prop_symb: expr
         }
         for arg, param in zip(args, self.params):
             new_varscope[param.symbol.s] = arg
@@ -54,9 +54,8 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expre
     # if there are multiple matches with the same number of properties, print an error
     #  we know this happened if len(matches_sets) == 0 since that means we discarded multiple matches at the same time
     if len(matches_sets) == 0:
-        pwarning(f"multiple matches found for property {prop} in symbol {expr.symbol} with properties {property_set}")
-        return expr
-    _, best_match = matches_sets[0]
+        raise CompileError(f"multiple matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
+    _, best_match = matches_sets[-1]
     
     # forward resolve
     who_to_resolve = constants.immediate_resolve if prop.start_char == '{' else constants.resolve

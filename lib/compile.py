@@ -7,7 +7,7 @@ import llvmlite.binding as llvm
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
     import constants
-    from definitions import builtin_definition, unary_apply, binary_apply, multi_apply, pwarning, CompileError
+    from definitions import builtin_definition, unary_apply, binary_apply, CompileError, expression_to_associated_value
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -89,6 +89,62 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
         raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
 
+
+class CompiledUserDefinition(Definition):
+    # To be stored as a "compile" definition on the func name
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, llvm_func: ir.Function):
+        assert properties[-1].property.s == llvm_func.name
+        self.llvm_func = llvm_func
+        self.prop_symb = prop_symb
+        self.properties = properties
+        self.is_compound = is_compound
+        # self.params = []
+        # self.body = []
+
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        call_prop = lhs.force_get_property(self.llvm_func.name)
+        assert self.llvm_func.name == call_prop.property.s
+
+        # make a call to the function
+        builder = get_compile_construct(scope, '__BUILDER__')
+        arg_vals = [get_compiled(lhs, scope)]
+        for prop in call_prop.compound_properties:
+            arg_expr = expression_compile_all(prop, scope)
+            arg_val = get_compiled(arg_expr, scope)
+            arg_vals.append(arg_val)
+        print(f"Calling {self.llvm_func} with arguments {arg_vals}")
+        call_res = builder.call(self.llvm_func, arg_vals, f'{self.llvm_func.name}_call_tmp')
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=call_res)
+        return lhs.replace_property('compile', compile_prop)
+    
+
+class CompiledInterpretableUserDefinition(Definition):
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, llvm_func: ir.Function):
+        self.llvm_func = llvm_func
+        self.llvm_jit_func = None
+        self.prop_symb = prop_symb
+        self.properties = properties
+        self.is_compound = is_compound
+        # self.params = []
+        # self.body = []
+
+    def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        # called a compiled function in interpreter
+        # execute the function in llvm as JIT
+        # TODO currently we only support integer functions
+        if self.llvm_jit_func is None:
+            llvm_mod = llvm.parse_assembly(str(self.llvm_func.module))
+            llvm_mod.verify()
+            self.llvm_jit_func = llvm.create_mcjit_compiler(llvm_mod, llvm.Target.from_default_triple().create_target_machine())
+            self.llvm_jit_func.finalize_object()
+        arg_vals = [expression_to_associated_value(arg) for arg in args]
+        res = self.llvm_jit_func.get_function_address(self.llvm_func.name)
+        from ctypes import CFUNCTYPE, c_int64
+        cfunc = CFUNCTYPE(c_int64, *[c_int64 for _ in arg_vals]) (res)
+        return Expression(symbol=expr.symbol, properties=[Property(expr.symbol.create_renamed('compile'), is_association=True, associated_value=cfunc(*arg_vals))])
+
+
 # Builtin types
 
 @builtin_definition
@@ -97,7 +153,6 @@ class CompileIntegerDefinition(Definition):
     property_names = ['integer']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        # TODO compile to an actual binary instead of just evaluating the expression
         ival = lhs.force_get_property('integer')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True)
         compile_prop.associated_value = ir.Constant(ir.IntType(64), ival.associated_value or 0)
@@ -450,7 +505,49 @@ class CompileDoDefinition(Definition):
         return lhs.replace_property('compile', compile_prop)
 
 @builtin_definition
-class CompileDefinition(Definition):
+class CompileDefinitionDefinition(Definition):
+    symbol = 'compile'
+    property_names = ['definition']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        lhs, defn_prop = lhs.discard_properties_after('definition')
+        # The function property is the last property in lhs
+        # TODO name mangling to allow multiple functions with the same name but different signatures
+        # The parameters are the lhs symbol and the symbols in the compound properties of the last property in the lhs
+        func_prop = lhs.properties[-1]
+        func_name = func_prop.property.s
+        # TODO types for parameters and return value
+        param_names = [lhs.symbol.s] + [prop.symbol.s for prop in func_prop.compound_properties]
+        parameters = [ir.IntType(64) for _ in param_names]
+
+        properties = [p for p in lhs.properties if p.property != 'identifier']
+        func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), parameters), name=func_name)
+        defn = CompiledUserDefinition(func_name, properties, is_compound=True, llvm_func=func)
+        print("Added definition", defn)
+        scope.local_defns.setdefault('compile', []).append(defn)
+
+        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
+        compile_scope = Scope(parent_scope=scope)
+        set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
+        # Populate parameters
+        for param_name, param in zip(param_names, func.args):
+            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=param)
+            compile_scope.local_vars[param_name] = Expression(
+                symbol=lhs.symbol.create_renamed(param_name),
+                properties=[compile_prop]
+            )
+
+        for expr in defn_prop.compound_properties:
+            res_expr = expression_compile_all(expr, compile_scope)
+        res = get_compiled(res_expr, compile_scope)
+        builder.ret(res)
+
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=func)
+        res = lhs.replace_property('compile', compile_prop)
+        return res
+
+@builtin_definition
+class CompileToDefinition(Definition):
     symbol = 'compile_to'
     param_names = 'file_dest'
     @binary_apply

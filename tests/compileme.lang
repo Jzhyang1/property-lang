@@ -5,16 +5,19 @@
 /* 7+5 expands into 7 +(5.). which
 	because of the `.` it is evaluated at compile-time
 	to be the constant 12 */
-
-0 do[
-	7+5 print
-] compile_to("print12.out");
+0 do(
+	7+5 print;
+) compile_to("print12.out");
 
 /* 0 do (...) -> this returns 0 */
-0 do [
-	1 then[5 print]else[99 print]
- ] compile_to("print5.out");
+0 do (
+	1 then[5 print]else[99 print];
+) compile_to("print5.out");
 
-0 do [
-	"Hello, World!" print
- ] compile_to("hello.out");
+0 do (
+	_ print_hello definition{
+		"Hello, World!" print;
+		0;
+	};
+	0 print_hello;
+) compile_to("hello.out");
