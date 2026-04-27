@@ -84,6 +84,10 @@ class Expression:
         new_expr.properties.append(property)
         return new_expr
     def replace_property(self, to_replace: str, new_property: Property) -> 'Expression':
+        '''
+        removes any previous properties with the same name as to_replace, then
+        appends new_property to the properties list
+        '''
         new_expr = Expression(self.symbol, [property for property in self.properties if property.property != to_replace])
         new_expr.properties.append(new_property)
         return new_expr

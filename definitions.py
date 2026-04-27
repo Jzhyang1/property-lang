@@ -109,6 +109,8 @@ def unary_apply(func: Callable[[Any, Expression, Scope], Expression]):
 def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
     @wraps(func)
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        if len(args) != 1:
+            raise CompileError(f"expected an argument, got {args}", anchor=lhs.symbol)
         return func(self, lhs, args[0], scope)
     return apply
 
@@ -356,7 +358,8 @@ class ImportedPythonDefinition(Definition):
 
 def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scope: Scope):
     path_str = find_import_file(path_anchor, path)
-    captured_globals = make_global_vars(path_str)
+    captured_globals: dict = make_global_vars(path_str)
+    captured_globals['__file__'] = path_str
     with open(path_str, 'r') as f:
         content = f.read()
     # TODO make this safe
@@ -403,14 +406,33 @@ class ImportPythonDefinition(Definition):
         path = lhs.try_get_property('string')
         assert path is not None
         # Load in the python file
-        path_str = find_import_file(lhs.symbol.file, path.associated_value)
-        ## TODO make this safe
-        with open(path_str, 'r') as f:
-            content = f.read()
-        code = compile(content, path_str, 'exec')
-        # TODO capture global_vars
-        exec(code, globals())
+        ImportPythonDefinition.import_module(lhs.symbol.file, path.associated_value)
         return lhs
+
+    past_imports = {}
+    @classmethod
+    def import_module(cls, path_anchor: str, path_str: str):
+        import importlib.util
+        path_str = find_import_file(path_anchor, path_str)
+        # Get string from path_str
+        module_name = os.path.splitext(os.path.basename(path_str))[0]
+
+        spec = importlib.util.spec_from_file_location(module_name, path_str)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+
+        # Check if we have already imported this module to avoid duplicates
+        if module_name in cls.past_imports: return cls.past_imports[module_name]
+        else: cls.past_imports[module_name] = module
+
+        sys.modules[module_name] = module
+        # for convenience, we also allow access to the global definitions dict
+        setattr(module, 'global_definitions', global_definitions)
+        # and some of the modules
+        setattr(module, 'constants', constants)
+        setattr(module, 'definitions', sys.modules[__name__])
+        spec.loader.exec_module(module)
+        return module
     
 # List operators
 

@@ -1,0 +1,31 @@
+"lib/pointer.py" python definition import;
+"lib/compile.py" python definition import;
+"lib/print.py" python definition import;
+
+global_value assign[1];
+
+/*
+ * var identifier reference -> pointer(borrow memory from var)
+ */
+global_pointer assign[global_value reference];
+
+/*
+ * we can dereference to get the updated value of global_value
+ */
+global_value assign[2];
+global_pointer.dereference.print;
+
+0 do(
+	local_value1 assign[3];
+	local_value2 assign[4];
+
+	/*
+	 * We use a little bit of stack organization information:
+	 * local_value2 is 8 bytes below local_value1 because stack grows downwards
+	 */
+	local_pointer2 assign[local_value2 reference];	/* grab local_value2's reference */
+	local_pointer1 assign[local_pointer2 - 8];		/* calculate position of local_value1 */
+
+	local_pointer1.dereference.print;
+	local_pointer2.dereference.print;
+) compile_to("print34.out");

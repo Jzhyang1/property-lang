@@ -113,7 +113,6 @@ class CompiledUserDefinition(Definition):
             arg_expr = expression_compile_all(prop, scope)
             arg_val = get_compiled(arg_expr, scope)
             arg_vals.append(arg_val)
-        print(f"Calling {self.llvm_func} with arguments {arg_vals}")
         call_res = builder.call(self.llvm_func, arg_vals, f'{self.llvm_func.name}_call_tmp')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=call_res)
         return lhs.replace_property('compile', compile_prop)
@@ -144,6 +143,16 @@ class CompiledInterpretableUserDefinition(Definition):
         cfunc = CFUNCTYPE(c_int64, *[c_int64 for _ in arg_vals]) (res)
         return Expression(symbol=expr.symbol, properties=[Property(expr.symbol.create_renamed('compile'), is_association=True, associated_value=cfunc(*arg_vals))])
 
+
+# Utility
+
+@builtin_definition
+class CompileCompileDefinition(Definition):
+    symbol = 'compile'
+    property_names = ['compile']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        return lhs
 
 # Builtin types
 
@@ -322,17 +331,12 @@ class CompileIdentifierDefinition(Definition):
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         var_expr = scope.var_lookup(lhs.symbol.s)
         if var_expr is None:
-            # Create a global variable if it doesn't exist
-            var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=lhs.symbol.s)
-            var.linkage = 'internal'
-            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-            res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compile_prop)
-            return res
-        else:
-            # Add the property to the existing variable expression if it exists
-            var = var_expr.force_get_property('compile').associated_value
-            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-            return lhs.replace_property('compile', compile_prop)
+            raise CompileError(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs.symbol)
+        builder = get_compile_construct(scope, '__BUILDER__')
+        var_ptr = get_compiled(var_expr, scope)
+        var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_val)
+        return var_expr.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileDeclareDefinition(Definition):
@@ -340,29 +344,38 @@ class CompileDeclareDefinition(Definition):
     property_names = ['declare']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        # TODO allow non-integer types
-        if not any(prop.property.s == 'integer' for prop in lhs.properties):
-            raise CompileError('non-integer variables not implemented yet')
-        var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=lhs.symbol.s)
+        lhs, declare_prop = lhs.discard_properties_after('declare')
+        return CompileDeclareDefinition.create_variable(lhs.symbol.s, scope, lhs)
+    
+    @classmethod
+    def create_variable(cls, name: str, scope: Scope, base_properties: Expression) -> Expression:
+        # TODO local variables
+        var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=name)
         var.linkage = 'internal'
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var)
-        res = scope.local_vars[lhs.symbol.s] = lhs.create_with_property(compile_prop)
+        anchor = base_properties.symbol
+        compile_prop = Property(anchor.create_renamed('compile'), is_association=True, associated_value=var)
+        res = scope.local_vars[name] = base_properties.replace_property('compile', compile_prop)
         return res
     
 @builtin_definition
 class CompileAssignDefinition(Definition):
     symbol = 'compile'
     property_names = ['assign']
-    param_names = ['rhs']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        lhs, assign_prop = lhs.discard_properties_after('assign')
+        if len(assign_prop.compound_properties) != 1:
+            raise CompileError(f"`assign` requires one argument, got {assign_prop.compound_properties}")
+        val_expr = assign_prop.compound_properties[0]
+        val_expr = expression_compile_all(val_expr, scope)  # compile the rhs
         var_expr = scope.var_lookup(lhs.symbol.s)
         if var_expr is None:
-            raise CompileError(f"variable {lhs.symbol.s} not declared")
+            var_expr = CompileDeclareDefinition.create_variable(lhs.symbol.s, scope, val_expr)
+        # TODO move properties of val_expr to var_expr
         var = get_compiled(var_expr, scope)
-        rhs_val = get_compiled(rhs, scope)
+        val = get_compiled(val_expr, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
-        compile_res = builder.store(rhs_val, var)
+        compile_res = builder.store(val, var)
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=compile_res)
         return lhs.replace_property('compile', compile_prop)
 
@@ -523,7 +536,6 @@ class CompileDefinitionDefinition(Definition):
         properties = [p for p in lhs.properties if p.property != 'identifier']
         func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), parameters), name=func_name)
         defn = CompiledUserDefinition(func_name, properties, is_compound=True, llvm_func=func)
-        print("Added definition", defn)
         scope.local_defns.setdefault('compile', []).append(defn)
 
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
@@ -582,6 +594,7 @@ class CompileToDefinition(Definition):
         llvm_ir = str(module)
         llvm_mod = llvm.parse_assembly(llvm_ir)
         llvm_mod.verify()
+        # print(f"Generated LLVM IR:\n{llvm_ir}")
 
         obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
         with open(obj_path_str, 'wb') as f:

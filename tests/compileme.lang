@@ -6,12 +6,13 @@
 	because of the `.` it is evaluated at compile-time
 	to be the constant 12 */
 0 do(
-	7+5 print;
+	x assign[12];
+	x.print;
 ) compile_to("print12.out");
 
 /* 0 do (...) -> this returns 0 */
 0 do (
-	1 then[5 print]else[99 print];
+	1 then[2+3 print]else[99 print];
 ) compile_to("print5.out");
 
 0 do (
