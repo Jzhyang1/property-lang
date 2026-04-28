@@ -24,7 +24,7 @@ global_pointer.dereference.print;
 	 * local_value2 is 8 bytes below local_value1 because stack grows downwards
 	 */
 	local_pointer2 assign[local_value2 reference];	/* grab local_value2's reference */
-	local_pointer1 assign[local_pointer2 - 8];		/* calculate position of local_value1 */
+	local_pointer1 assign[local_pointer2 + 8];		/* calculate position of local_value1 */
 
 	local_pointer1.dereference.print;
 	local_pointer2.dereference.print;

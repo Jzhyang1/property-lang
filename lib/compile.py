@@ -350,8 +350,12 @@ class CompileDeclareDefinition(Definition):
     @classmethod
     def create_variable(cls, name: str, scope: Scope, base_properties: Expression) -> Expression:
         # TODO local variables
-        var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=name)
-        var.linkage = 'internal'
+        if scope.parent is None:
+            var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=name)
+            var.linkage = 'internal'
+        else:
+            builder = get_compile_construct(scope, '__BUILDER__')
+            var = builder.alloca(ir.IntType(64), name=name)
         anchor = base_properties.symbol
         compile_prop = Property(anchor.create_renamed('compile'), is_association=True, associated_value=var)
         res = scope.local_vars[name] = base_properties.replace_property('compile', compile_prop)
