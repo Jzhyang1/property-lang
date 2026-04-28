@@ -42,14 +42,13 @@ def generate_file(output_file: str, prompt: str) -> None:
 class GenerateDefinition(Definition):
     symbol = 'generate'
     property_names = ['python']
-    param_names = ['output_file', 'prompt', 'definitions...']
+    param_names = ['prompt', 'definitions...']
     @multi_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        output_file, prompt, *definitions = args
-        output_file, prompt = output_file.try_get_property('string'), prompt.try_get_property('string')
+        prompt, *definitions = args
+        output_file, prompt = lhs.try_get_property('string'), prompt.try_get_property('string')
         if output_file is None or prompt is None:
             raise CompileError(f'Generator requires strings (output_file, prompt), got ({output_file}, {prompt})')
-            return lhs
         output_file, prompt = output_file.associated_value, prompt.associated_value
         cache_file = f'cache/generator/{output_file}.log'
 

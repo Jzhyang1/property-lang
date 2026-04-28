@@ -90,6 +90,19 @@ class ArithmeticEqualDefinition(Definition):
         return associated_value_to_expression(lhs.symbol, res, '==')
 
 @builtin_definition
+class ArithmeticNotEqualDefinition(Definition):
+    symbol = '!='
+    param_names = ['operand']
+    property_names = ['integer']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        lval = lhs.try_get_property('integer')
+        rval = rhs.try_get_property('integer')
+        assert lval is not None and rval is not None
+        res = lval.associated_value != rval.associated_value
+        return associated_value_to_expression(lhs.symbol, res, '!=')
+
+@builtin_definition
 class ArithmeticLessThanDefinition(Definition):
     symbol = '<'
     param_names = ['operand']
@@ -101,3 +114,42 @@ class ArithmeticLessThanDefinition(Definition):
             raise CompileError(f"unable to check {rhs} < {lhs}")
         res = idst.associated_value < ival.associated_value
         return associated_value_to_expression(lhs.symbol, res, '<')
+
+@builtin_definition
+class ArithmeticLessThanOrEqualDefinition(Definition):
+    symbol = '<='
+    param_names = ['operand']
+    property_names = ['integer']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        if (ival := rhs.try_get_property('integer')) is None or \
+            (idst := lhs.try_get_property('integer')) is None:
+            raise CompileError(f"unable to check {rhs} <= {lhs}")
+        res = idst.associated_value <= ival.associated_value
+        return associated_value_to_expression(lhs.symbol, res, '<=')
+
+@builtin_definition
+class ArithmeticGreaterThanDefinition(Definition):
+    symbol = '>'
+    param_names = ['operand']
+    property_names = ['integer']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        if (ival := rhs.try_get_property('integer')) is None or \
+            (idst := lhs.try_get_property('integer')) is None:
+            raise CompileError(f"unable to check {rhs} > {lhs}")
+        res = idst.associated_value > ival.associated_value
+        return associated_value_to_expression(lhs.symbol, res, '>')
+
+@builtin_definition
+class ArithmeticGreaterThanOrEqualDefinition(Definition):
+    symbol = '>='
+    param_names = ['operand']
+    property_names = ['integer']
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        if (ival := rhs.try_get_property('integer')) is None or \
+            (idst := lhs.try_get_property('integer')) is None:
+            raise CompileError(f"unable to check {rhs} >= {lhs}")
+        res = idst.associated_value >= ival.associated_value
+        return associated_value_to_expression(lhs.symbol, res, '>=')

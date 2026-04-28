@@ -92,19 +92,3 @@ class ListEqualDefinition(Definition):
         return Expression(lhs.symbol.create_renamed('=='), [
             Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=res)
         ])
-
-@builtin_definition
-class ListIndexDefinition(Definition):
-    symbol = 'index'
-    property_names = ['list']
-    param_names = ['index']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        dst = lhs.try_get_property('list')
-        assert dst is not None
-        if (isrc := rhs.try_get_property('integer')) is None:
-            raise CompileError(f'unable to index {lhs} with {rhs}')
-        if not isinstance(dst.associated_value, list) or \
-                isrc.associated_value >= len(dst.associated_value):
-            raise CompileError(f'index out of bounds on {lhs} with {rhs}')
-        return dst.associated_value[isrc.associated_value]
