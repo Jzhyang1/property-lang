@@ -90,7 +90,7 @@ class CheckDefinition(Definition):
         from main import expression_resolve_all, resolve_last_property
         # repeat until all checks pass
         for _ in range(10): # max 10 iterations to prevent infinite loops
-            resolved = resolve_last_property(new_lhs, scope)
+            resolved = resolve_last_property(new_lhs, scope, [])
     
             for condition in args:
                 condition_evaluated = expression_resolve_all(condition, scope, constants.resolve)

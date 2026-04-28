@@ -25,13 +25,18 @@ class UserDefinedDefinition(Definition):
 
 # Begin function definitions
 
-def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expression:
+def resolve_property_on(expr: Expression, prop: Property, scope: Scope, additional_compound: list[Expression]) -> Expression:
     '''
     resolves the property on the expression
     It is safe to call resolve_property_on when the property is known,
     but if evaluating code directly, resolve_last_property should be used
+
+    additional_compound is used for `.(...)` resolution to pass the arguments
     '''
     property_set: set[str] = set(p.property.s for p in expr.properties)
+    # Combine with the additional properties
+    prop = prop.copy()
+    prop.compound_properties += additional_compound
 
     matches = scope.defn_lookup(prop.property.s)
     if matches is None:
@@ -64,7 +69,7 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope) -> Expre
     # apply the best match
     return best_match.apply(expr, args, scope, prop)
 
-def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
+def resolve_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
     '''
     Resolves the last property of expr.
     It is safe to call resolve_property_on when the property is known,
@@ -76,8 +81,8 @@ def resolve_last_property(expr: Expression, scope: Scope) -> Expression:
     *properties, prop = properties
     if prop in constants.resolve:
         # Go one level down
-        expr = resolve_last_property(Expression(expr.symbol, properties), scope)
-    return resolve_property_on(Expression(expr.symbol, properties), prop, scope)
+        expr = resolve_last_property(Expression(expr.symbol, properties), scope, prop.compound_properties)
+    return resolve_property_on(Expression(expr.symbol, properties), prop, scope, additional_compound)
 
 def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collection[str]) -> Expression:
     '''
@@ -90,7 +95,7 @@ def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collec
             prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
 
         if prop.property.s in resolve_these:
-            expr_copy = resolve_last_property(expr_copy, scope)
+            expr_copy = resolve_last_property(expr_copy, scope, prop.compound_properties)
             expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
             assert not any(p.property.s in resolve_these for p in expr_copy.properties)
         else:

@@ -52,9 +52,9 @@ def set_compile_construct(anchor: Token, scope: Scope, name: CompileConstruct, v
         properties=[Property(anchor.create_renamed('compile'), is_association=True, associated_value=value)]
     )
 
-def compile_last_property(expr: Expression, scope: Scope) -> Expression:
+def compile_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
     from main import resolve_property_on
-    compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope)
+    compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope, additional_compound)
     return compiled_expr
 
 def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
@@ -69,7 +69,7 @@ def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
             prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
 
         if prop.property.s in constants.resolve:
-            expr_copy = compile_last_property(expr_copy, scope)
+            expr_copy = compile_last_property(expr_copy, scope, prop.compound_properties)
             expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
             assert not any(p.property.s in constants.resolve for p in expr_copy.properties)
         else:
@@ -590,7 +590,7 @@ class CompileToDefinition(Definition):
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
 
         from main import resolve_property_on
-        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope)
+        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])
         compiled_val = get_compiled(compiled_expr, compile_scope)
         builder.ret(compiled_val)
 

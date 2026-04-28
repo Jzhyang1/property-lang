@@ -180,7 +180,7 @@ class ControlElseDefinition(Definition):
             from main import resolve_last_property, resolve_property_on
             res = lhs
             for expr in body:
-                res = resolve_last_property(expr, scope)
+                res = resolve_last_property(expr, scope, [])
             return res
         else:
             # pop all properties until 'then' or empty
@@ -190,7 +190,7 @@ class ControlElseDefinition(Definition):
             if len(properties) == 0:
                 return lhs
             from main import resolve_last_property, resolve_property_on
-            return resolve_last_property(Expression(lhs.symbol, properties), scope)
+            return resolve_last_property(Expression(lhs.symbol, properties), scope, [])
 
 @builtin_definition
 class ControlThenDefinition(Definition):
@@ -205,7 +205,7 @@ class ControlThenDefinition(Definition):
             from main import resolve_last_property, resolve_property_on
             res = lhs
             for expr in body:
-                res = resolve_last_property(expr, scope)
+                res = resolve_last_property(expr, scope, [])
             return res
         else:
             return lhs

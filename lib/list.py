@@ -75,7 +75,7 @@ class ListEachDefinition(Definition):
             # item is an Expression
             expr = Expression(item.symbol, 
                               item.properties + [prop])
-            res.append(resolve_last_property(expr, scope))
+            res.append(resolve_last_property(expr, scope, []))
         return create_list(lhs.symbol, res)
 
 @builtin_definition
