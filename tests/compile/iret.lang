@@ -1,0 +1,8 @@
+"lib/compile/x86_64.py" python definition import;
+"lib/pointer.py" python definition import;
+
+0 do(
+	stack assign[3];
+	stack_pointer assign[stack reference];	/* grab stack reference */
+	stack_pointer x86_64 invlpg;	/* invalidate page */
+) compile_to("invlpg.obj");

@@ -4,8 +4,6 @@ if not '__LANG__' in globals():
 
 # We extend compilation
 import llvmlite.ir as ir
-import llvmlite.binding as llvm
-
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
 else:
