@@ -611,3 +611,14 @@ class CompileToDefinition(Definition):
             os.remove(obj_path_str)
 
         return lhs
+    
+@builtin_definition
+class MachineNameDefinition(Definition):
+    symbol = 'machine_name'
+    property_names = ['compile']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        target = llvm.Target.from_default_triple()
+        machine_name = target.name
+        str_prop = Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=machine_name)
+        return lhs.replace_property('string', str_prop)

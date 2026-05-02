@@ -2,6 +2,8 @@
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
 
+_ compile machine_name.print;
+
 /* 7+5 expands into 7 +(5.). which
 	because of the `.` it is evaluated at compile-time
 	to be the constant 12 */

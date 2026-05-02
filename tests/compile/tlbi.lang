@@ -1,0 +1,8 @@
+"lib/compile/aarch64.py" python definition import;
+"lib/pointer.py" python definition import;
+
+0 do(
+	stack assign[3];
+	stack_pointer assign[stack reference];	/* grab stack reference */
+	stack_pointer.pointer aarch64 tlbi(vae1);	/* invalidate page */
+) compile_to("tlbi.obj");

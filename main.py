@@ -38,6 +38,8 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     prop = prop.copy()
     prop.compound_properties += additional_compound
 
+    print("Resolving", prop, "on", expr)
+
     matches = scope.defn_lookup(prop.property.s)
     if matches is None:
         pwarning(f"no matches found for property {prop} in symbol {expr.symbol}", anchor=prop.property)
