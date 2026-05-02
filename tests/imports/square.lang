@@ -1,0 +1,5 @@
+"lib/arithmetic.py" python definition import;
+
+n integer square definition{
+	n * n;
+};

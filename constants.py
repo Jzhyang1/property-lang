@@ -138,12 +138,13 @@ class Definition:
 class Scope:
     def __init__(self, 
                  local_vars: None | dict[str, Expression] = None, local_defns: None | dict[str, list['Definition']] = None, 
-                 parent_scope: 'None | Scope' = None):
+                 parent_scope: 'None | Scope' = None, is_global: bool=False):
         if local_vars is None: local_vars = {}
         if local_defns is None: local_defns = {}
         self.local_vars = local_vars
         self.local_defns = local_defns
         self.parent = parent_scope
+        self.is_global = is_global
 
     def var_lookup(self, var_name: str) -> Expression | None:
         return self.local_vars[var_name] if var_name in self.local_vars else \

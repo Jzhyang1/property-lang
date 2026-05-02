@@ -303,6 +303,31 @@ def find_import_file(path_anchor: str, path: str):
         return path_library
     else:
         raise CompileError(f'unable to resolve path {path}')
+    
+@builtin_definition
+class ImportDefinition(Definition):
+    symbol = 'import'
+    property_names = ['string']
+    param_names = ['imported_definitions...']
+    imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to avoid duplicate imports
+    @multi_apply
+    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+        path = lhs.force_get_property('string')
+        path_str = find_import_file(lhs.symbol.file, path.associated_value)
+        if path_str in ImportDefinition.imported_files:
+            imported_globals = ImportDefinition.imported_files[path_str]
+        else:
+            from main import run_file
+            imported_globals = run_file(path_str)
+            ImportDefinition.imported_files[path_str] = imported_globals
+        for defn in rhs:
+            if defn.symbol.s in imported_globals.local_vars:
+                scope.local_vars[defn.symbol.s] = imported_globals.local_vars[defn.symbol.s]
+            elif defn.symbol.s in imported_globals.local_defns:
+                scope.local_defns.setdefault(defn.symbol.s, []).extend(imported_globals.local_defns[defn.symbol.s])
+            else:
+                pwarning(f"unable to import {defn.symbol} from {path_str}")
+        return lhs
 
 class ImportedSharedDefinition(Definition):
     def __init__(self, name: str, is_compound: bool, func: Callable, source_file: str):

@@ -1,5 +1,10 @@
 "lib/print.py" python definition import;
-"tests/not_lib.py" python import(factorial);
+"tests/imports/not_lib.py" python import(factorial);
+"lib/arithmetic.py" python definition import;
+"tests/imports/square.lang" import(square);
+
+7 square.print;
+12 square.print;
 
 7 factorial.print;
 12 factorial.print;

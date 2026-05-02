@@ -38,13 +38,7 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     prop = prop.copy()
     prop.compound_properties += additional_compound
 
-    print("Resolving", prop, "on", expr)
-
     matches = scope.defn_lookup(prop.property.s)
-    if matches is None:
-        pwarning(f"no matches found for property {prop} in symbol {expr.symbol}", anchor=prop.property)
-        return expr
-    
     # TODO filter out compound properties to those that match the properties of expr
     matches = [m for m in matches if all(p.property.s in property_set for p in m.properties)] # filter for matches that have all the other properties
     if len(matches) == 0:
@@ -104,6 +98,14 @@ def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collec
             expr_copy.properties.append(prop)
     return expr_copy
 
+def run_file(file: str):
+    built, i = build_tree(tokenize(file))
+    builtin_scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
+    scope = Scope(parent_scope=builtin_scope, is_global=True)
+    for expr in built:
+        expr = expression_resolve_all(expr, scope, constants.resolve)
+    return scope
+
 if __name__ == "__main__":
     from argparse import ArgumentParser
     argparser = ArgumentParser(description="Run a .lang file")
@@ -111,8 +113,4 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     file = args.file
 
-    built, i = build_tree(tokenize(file))
-    scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
-    for expr in built:
-        expr = expression_resolve_all(expr, scope, constants.resolve)
-        # expr = expression_resolve_all(expr, scope)
+    run_file(file)

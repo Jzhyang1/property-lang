@@ -350,7 +350,7 @@ class CompileDeclareDefinition(Definition):
     @classmethod
     def create_variable(cls, name: str, scope: Scope, base_properties: Expression) -> Expression:
         # TODO local variables
-        if scope.parent is None:
+        if scope.is_global:
             var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=name)
             var.linkage = 'internal'
         else:
