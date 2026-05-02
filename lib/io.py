@@ -42,8 +42,7 @@ class FileReadDefinition(Definition):
     property_names = ['file']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lval = lhs.try_get_property('file')
-        assert lval is not None
+        lval = lhs.force_get_property('file')
         if not lval.is_association:
             raise CompileError(f"cannot read from file {lval} which is not open")
         return Expression(lhs.symbol.create_renamed('read'), [
@@ -57,8 +56,7 @@ class FileReadToDefinition(Definition):
     param_names = ['read_to_string']    # read_to_string is included in the result
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        lval = lhs.try_get_property('file')
-        assert lval is not None
+        lval = lhs.force_get_property('file')
         if not lval.is_association:
             raise CompileError(f"cannot read from file {lval} which is not open")
         if (rval := rhs.try_get_property('string')) is None:
@@ -75,4 +73,22 @@ class FileReadToDefinition(Definition):
                 break
         return Expression(lhs.symbol.create_renamed('read'), [
             Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=read_str)
+        ])
+    
+@builtin_definition
+class FileWriteDefinition(Definition):
+    symbol = 'write'
+    property_names = ['file']
+    param_names = ['string_to_write']   # string_to_write is included in the result
+    @binary_apply
+    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+        lval = lhs.force_get_property('file')
+        if not lval.is_association:
+            raise CompileError(f"cannot write to file {lval} which is not open")
+        if (rval := rhs.try_get_property('string')) is None:
+            raise CompileError(f"write requires a string property, got {rhs}")
+        write_str: str = rval.associated_value # type: ignore
+        lval.associated_value.write(write_str)
+        return Expression(lhs.symbol.create_renamed('write'), [
+            Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=write_str)
         ])
