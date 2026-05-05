@@ -1,4 +1,5 @@
 "lib/compile.py" python definition import;
+"lib/string.py" python definition import;
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
 
@@ -19,7 +20,7 @@ _ compile machine_name.print;
 
 0 do (
 	_ print_hello definition{
-		"Hello, World!" print;
+		"Hello, " + "World!" . print;
 		0;
 	};
 	0 print_hello;

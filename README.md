@@ -255,6 +255,7 @@ Here are the most important properties:
 - `identifier declare`: creates a *variable* with the *symbol* and gives it
   the specified *properties*
 - `identifier`: resolves the symbol to the *variable*'s value
+- `string import`: imports another `.lang` file
 - `string python definition import`: imports libraries e.g. 
   `"lib/compile.py" python definition import`
 
@@ -309,6 +310,7 @@ Here's a list of the remaining built-in properties:
 - `file open`
 - `file close`
 - `file read`: reads the contents of the entire file
+- `file write`: write the contents specified to the file
 
 #### `lib/list.py`
 
@@ -328,3 +330,4 @@ Here's a list of the remaining built-in properties:
 
 #### `lib/string.py`
 - `string`
+- `string split`

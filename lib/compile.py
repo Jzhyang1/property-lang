@@ -15,31 +15,10 @@ llvm.initialize_native_asmprinter()
 CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__']
 CompileConstructType = ir.Module | ir.IRBuilder | str
 
-def _define_print_integer(module):
-    # Add the declaration of printf to the module
-    printf_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True)
-    printf = ir.Function(module, printf_ty, name="printf")
-
-    # Create a global string for the format specifier
-    fmt_str = "%d\n\0"
-    fmt_str_global = ir.GlobalVariable(module, ir.ArrayType(ir.IntType(8), len(fmt_str)), name="fmt_str")
-    fmt_str_global.linkage = 'internal'
-    fmt_str_global.global_constant = True
-    fmt_str_global.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt_str)), bytearray(fmt_str.encode("utf8"))) # type: ignore
-
-    # Define the print_integer function (returns its argument after printing it)
-    print_integer_ty = ir.FunctionType(ir.IntType(64), [ir.IntType(64)])
-    print_integer = ir.Function(module, print_integer_ty, name="print_integer")
-    block = print_integer.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-    fmt_arg = builder.bitcast(fmt_str_global, ir.PointerType(ir.IntType(8)))
-    builder.call(printf, [fmt_arg, print_integer.args[0]])
-    builder.ret(print_integer.args[0])
-    
-def _define_print_string(module):
-    # Add the declaration of puts to the module
-    puts_ty = ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))])
-    puts = ir.Function(module, puts_ty, name="puts")
+initializers: list[Callable[[ir.Module], None]] = []
+def add_initializer(init: Callable[[ir.Module], None]):
+    if init not in initializers:
+        initializers.append(init)
 
 def get_compile_construct(scope: Scope, name: CompileConstruct) -> Any: # CompileConstructType
     module_expr = scope.force_var_lookup(name)
@@ -176,6 +155,7 @@ class CompileStringDefinition(Definition):
 
     @classmethod
     def create_string(cls, str_val: str, scope: Scope) -> ir.Value:
+        builder = get_compile_construct(scope, '__BUILDER__')
         file_str = get_compile_construct(scope, '__IMPORT_PATH__')
         cache_key = (file_str, str_val)
         if cache_key in CompileStringDefinition.compiled_cache:
@@ -189,8 +169,9 @@ class CompileStringDefinition(Definition):
         shared_str.linkage = 'internal'
         shared_str.global_constant = True
         shared_str.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val) + 1), bytearray((str_val + '\0').encode("utf8"))) # type: ignore
-        CompileStringDefinition.compiled_cache[cache_key] = shared_str
-        return shared_str
+        shared_str_int = builder.ptrtoint(shared_str, ir.IntType(64))
+        CompileStringDefinition.compiled_cache[cache_key] = shared_str_int
+        return shared_str_int
 
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
@@ -289,36 +270,6 @@ class CompileIntegerLogicalNotDefinition(Definition):
         cmp_res = builder.icmp_signed('!=', lhs_val, zero, 'logical_not_tmp')
         ires = builder.zext(cmp_res, ir.IntType(64), 'bool_to_int_tmp')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=ires)
-        return lhs.replace_property('compile', compile_prop)
-
-# Printing
-
-@builtin_definition
-class CompilePrintIntegerDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['integer', 'print']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, _ = lhs.discard_properties_after('print')
-        builder = get_compile_construct(scope, '__BUILDER__')
-        lhs_val = get_compiled(lhs, scope)
-        print_res = builder.call(get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
-        return lhs.replace_property('compile', compile_prop)
-
-@builtin_definition
-class CompilePrintStringDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['string', 'print']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, _ = lhs.discard_properties_after('print')
-        builder = get_compile_construct(scope, '__BUILDER__')
-        lhs_val = get_compiled(lhs, scope)
-        puts = get_compile_construct(scope, '__MODULE__').get_global('puts')
-        str_arg = builder.bitcast(lhs_val, ir.PointerType(ir.IntType(8)))
-        print_res = builder.call(puts, [str_arg], 'print_tmp')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
         return lhs.replace_property('compile', compile_prop)
 
 # Variables
@@ -583,8 +534,8 @@ class CompileToDefinition(Definition):
         compile_scope = Scope(parent_scope=scope)
         func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
-        _define_print_integer(module)
-        _define_print_string(module)
+        for init in initializers:
+            init(module)
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)

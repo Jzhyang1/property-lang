@@ -6,6 +6,7 @@ if not '__LANG__' in globals():
 import llvmlite.ir as ir
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
+    cstdlib = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile/cstdlib.py')
 else:
     raise ImportError("definitions module not found, cannot import compile module")
 
@@ -39,8 +40,26 @@ class ReferenceDefinition(Definition):
         ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=associated_expr)
         return lhs.create_with_property(ptr_prop)
     
+@builtin_definition
+class AllocateDefinition(Definition):
+    # Allocates a binary block of the given size in bytes and returns a pointer to it
+    symbol = 'allocate'
+    param_names = ['value']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        size = lhs.force_get_property('integer').associated_value
+        # TODO not sure what to do with size since python integers are unbounded
+        # Create an Expression that is not associated with any variable
+        allocated = Expression(lhs.symbol.create_renamed('allocated'), [
+            Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=0)
+        ])
+        ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=allocated)
+        return lhs.create_with_property(ptr_prop)
 
 # Compilation
+
+compile.add_initializer(cstdlib.define_malloc)
+compile.add_initializer(cstdlib.define_free)
 
 @builtin_definition
 class CompilePointerDefinition(Definition):
@@ -51,7 +70,7 @@ class CompilePointerDefinition(Definition):
         raw_value = compile.get_compiled(lhs, scope)
         # llvm ir wants pointer type, so we cast the raw value to a pointer type
         builder = compile.get_compile_construct(scope, '__BUILDER__')
-        res = builder.bitcast(raw_value, ir.PointerType(ir.IntType(64)))
+        res = builder.inttoptr(raw_value, ir.PointerType(ir.IntType(64)))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.replace_property('compile', compile_prop)
 
@@ -83,5 +102,20 @@ class CompileReferenceDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         var_ptr_int = builder.ptrtoint(var_ptr, ir.IntType(64))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_ptr_int)
+        int_property = Property(lhs.symbol.create_renamed('integer'))
+        return lhs.create_with_property(int_property).replace_property('compile', compile_prop)
+
+@builtin_definition
+class CompileAllocateDefinition(Definition):
+    symbol = 'compile'
+    property_names = ['allocate']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        size_value = compile.get_compiled(lhs, scope)
+        builder = compile.get_compile_construct(scope, '__BUILDER__')
+        # We must call malloc because size_value is not a constant
+        allocated_ptr = builder.call(builder.get_global('malloc'), [size_value])
+        allocated_ptr_int = builder.ptrtoint(allocated_ptr, ir.IntType(64))
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=allocated_ptr_int)
         int_property = Property(lhs.symbol.create_renamed('integer'))
         return lhs.create_with_property(int_property).replace_property('compile', compile_prop)
