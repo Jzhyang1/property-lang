@@ -287,7 +287,9 @@ class CompileIdentifierDefinition(Definition):
         var_ptr = get_compiled(var_expr, scope)
         var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_val)
-        return var_expr.replace_property('compile', compile_prop)
+        # We want to put the identifier properties before all the var_expr properties
+        res = Expression(lhs.symbol, lhs.properties + var_expr.properties)
+        return res.replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileDeclareDefinition(Definition):
@@ -513,6 +515,48 @@ class CompileDefinitionDefinition(Definition):
         res = lhs.replace_property('compile', compile_prop)
         return res
 
+
+# TODO make the compilation imports/linking more explicit
+compiled_modules_to_import = {}
+
+@builtin_definition
+class ImportCompileDefinition(Definition):
+    symbol = 'import'
+    property_names = ['compile']
+    @binary_apply
+    def apply(self, lhs: Expression, name_expr: Expression, scope: Scope) -> Expression:
+        name = name_expr.symbol.s # We allow for any type
+        module = ir.Module(name)
+        target = llvm.Target.from_default_triple()
+        target_machine = target.create_target_machine()
+        module.triple = target_machine.triple
+        module.data_layout = target_machine.target_data # type: ignore
+
+        # TODO cache the compiled results
+        compile_scope = Scope(parent_scope=scope)
+        func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
+        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
+        for init in initializers:
+            init(module)
+        set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
+        set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
+        set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
+
+        from main import resolve_property_on
+        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])
+        compiled_val = get_compiled(compiled_expr, compile_scope)
+        if compiled_val is None:
+            compiled_val = ir.Constant(ir.IntType(64), 0)
+        builder.ret(compiled_val)
+
+        # Output compiled binary file
+        llvm_ir = str(module)
+        print(llvm_ir)
+        llvm_mod = llvm.parse_assembly(llvm_ir)
+        llvm_mod.verify()
+        compiled_modules_to_import[name] = llvm_mod
+        return lhs
+
 @builtin_definition
 class CompileToDefinition(Definition):
     symbol = 'compile_to'
@@ -547,9 +591,11 @@ class CompileToDefinition(Definition):
 
         # Output compiled binary file
         llvm_ir = str(module)
+        print(llvm_ir)
         llvm_mod = llvm.parse_assembly(llvm_ir)
+        for imported_mod in compiled_modules_to_import.values():
+            llvm_mod.link_in(imported_mod)
         llvm_mod.verify()
-        # print(f"Generated LLVM IR:\n{llvm_ir}")
 
         obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
         with open(obj_path_str, 'wb') as f:

@@ -57,6 +57,7 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     if len(matches_sets) == 0:
         raise CompileError(f"multiple matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
     _, best_match = matches_sets[-1]
+    # print(expr, '>>>', best_match)
     
     # forward resolve
     who_to_resolve = constants.immediate_resolve if prop.start_char == '{' else constants.resolve

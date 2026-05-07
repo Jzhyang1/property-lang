@@ -59,6 +59,7 @@ class AllocateDefinition(Definition):
 # Compilation
 
 compile.add_initializer(cstdlib.define_malloc)
+compile.add_initializer(cstdlib.define_realloc)
 compile.add_initializer(cstdlib.define_free)
 
 @builtin_definition
@@ -102,8 +103,8 @@ class CompileReferenceDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         var_ptr_int = builder.ptrtoint(var_ptr, ir.IntType(64))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_ptr_int)
-        int_property = Property(lhs.symbol.create_renamed('integer'))
-        return lhs.create_with_property(int_property).replace_property('compile', compile_prop)
+        int_prop = Property(lhs.symbol.create_renamed('integer'))
+        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileAllocateDefinition(Definition):
@@ -117,5 +118,40 @@ class CompileAllocateDefinition(Definition):
         allocated_ptr = builder.call(builder.get_global('malloc'), [size_value])
         allocated_ptr_int = builder.ptrtoint(allocated_ptr, ir.IntType(64))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=allocated_ptr_int)
-        int_property = Property(lhs.symbol.create_renamed('integer'))
-        return lhs.create_with_property(int_property).replace_property('compile', compile_prop)
+        int_prop = Property(lhs.symbol.create_renamed('integer'))
+        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)
+    
+@builtin_definition
+class CompileDeallocateDefinition(Definition):
+    symbol = 'compile'
+    property_names = ['deallocate']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        ptr_value = compile.get_compiled(lhs, scope)
+        builder = compile.get_compile_construct(scope, '__BUILDER__')
+        ptr_value_ptr = builder.inttoptr(ptr_value, ir.PointerType(ir.IntType(64)))
+        builder.call(builder.get_global('free'), [ptr_value_ptr])
+        return lhs
+    
+@builtin_definition
+class CompileReallocateDefinition(Definition):
+    symbol = 'compile'
+    property_names = ['reallocate']
+    param_names = ['new_size']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        lhs, rprop = lhs.discard_properties_after('reallocate')
+        if len(rprop.compound_properties) != 1:
+            raise CompileError("expected exactly one property after 'reallocate' for pointer reallocation", anchor=rprop.property)
+        new_size_expr = rprop.compound_properties[0]
+        builder = compile.get_compile_construct(scope, '__BUILDER__')
+        module = compile.get_compile_construct(scope, '__MODULE__')
+
+        ptr_value = compile.get_compiled(lhs, scope)
+        ptr_value_ptr = builder.inttoptr(ptr_value, ir.PointerType(ir.IntType(64)))
+        new_size_value = compile.get_compiled(new_size_expr, scope)
+        res_ptr_ptr = builder.call(module.get_global('realloc'), [ptr_value_ptr, new_size_value])
+        res_ptr = builder.ptrtoint(res_ptr_ptr, ir.IntType(64))
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res_ptr)
+        int_prop = Property(lhs.symbol.create_renamed('integer'))
+        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)

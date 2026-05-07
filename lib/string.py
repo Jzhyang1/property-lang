@@ -53,6 +53,17 @@ class StringConcatDefinition(Definition):
         ])
     
 @builtin_definition
+class StringLengthDefinition(Definition):
+    symbol = 'length'
+    property_names = ['string']
+    @unary_apply
+    def apply(self, lhs: Expression, scope: Scope) -> Expression:
+        sval = lhs.force_get_property('string')
+        return Expression(lhs.symbol.create_renamed('length'), [
+            Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=len(sval.associated_value))
+        ])
+    
+@builtin_definition
 class StringSplitDefinition(Definition):
     symbol = 'split'
     property_names = ['string']
@@ -122,8 +133,6 @@ class CompileStringConcatDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         module = compile.get_compile_construct(scope, '__MODULE__')
 
-        print('l', lhs, 'r', rhs)
-
         lval = builder.inttoptr(compile.get_compiled(lhs, scope), ir.PointerType(ir.IntType(8)))
         rval = builder.inttoptr(compile.get_compiled(rhs, scope), ir.PointerType(ir.IntType(8)))
 
@@ -139,3 +148,4 @@ class CompileStringConcatDefinition(Definition):
         res = builder.ptrtoint(malloced_ptr, ir.IntType(64))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.replace_property('compile', compile_prop)
+    

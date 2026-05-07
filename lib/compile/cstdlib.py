@@ -4,6 +4,8 @@ import llvmlite.ir as ir
 
 def define_malloc(module):
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.IntType(64)]), name="malloc")
+def define_realloc(module):
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.IntType(64)]), name="realloc")
 def define_free(module):
     ir.Function(module, ir.FunctionType(ir.VoidType(), [ir.PointerType(ir.IntType(8))]), name="free")
 
@@ -24,3 +26,5 @@ def define_strcat(module):
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcat')
 def define_strlen(module):
     ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))]), name='strlen')
+def define_strtok(module):
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strtok')
