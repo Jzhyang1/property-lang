@@ -6,7 +6,6 @@ if not '__LANG__' in globals():
 import llvmlite.ir as ir
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
-    cstdlib = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile/cstdlib.py')
 else:
     raise ImportError("definitions module not found, cannot import compile module")
 
@@ -57,10 +56,6 @@ class AllocateDefinition(Definition):
         return lhs.create_with_property(ptr_prop)
 
 # Compilation
-
-compile.add_initializer(cstdlib.define_malloc)
-compile.add_initializer(cstdlib.define_realloc)
-compile.add_initializer(cstdlib.define_free)
 
 @builtin_definition
 class CompilePointerDefinition(Definition):

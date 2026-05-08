@@ -6,7 +6,6 @@ if not '__LANG__' in globals():
 import llvmlite.ir as ir
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
-    cstdlib = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile/cstdlib.py')
 else:
     raise ImportError("definitions module not found, cannot import compile module")
 
@@ -56,17 +55,14 @@ def _define_print_integer(module):
     fmt_str_global.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(fmt_str)), bytearray(fmt_str.encode("utf8"))) # type: ignore
 
     # Define the print_integer function (returns its argument after printing it)
-    print_integer_ty = ir.FunctionType(ir.IntType(64), [ir.IntType(64)])
-    print_integer = ir.Function(module, print_integer_ty, name="print_integer")
+    print_integer = ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.IntType(64)]), name="print_integer")
     block = print_integer.append_basic_block(name="entry")
     builder = ir.IRBuilder(block)
     fmt_arg = builder.bitcast(fmt_str_global, ir.PointerType(ir.IntType(8)))
     builder.call(module.get_global('printf'), [fmt_arg, print_integer.args[0]])
     builder.ret(print_integer.args[0])
     
-compile.add_initializer(cstdlib.define_printf)
-compile.add_initializer(cstdlib.define_puts)
-compile.add_initializer(_define_print_integer)
+compile.add_stdlib_definition(_define_print_integer)
 
 @builtin_definition
 class CompilePrintIntegerDefinition(Definition):

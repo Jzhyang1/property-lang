@@ -7,7 +7,6 @@ if not '__LANG__' in globals():
 import llvmlite.ir as ir
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
-    cstdlib = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile/cstdlib.py')
 else:
     raise ImportError("definitions module not found, cannot import compile module")
 
@@ -86,12 +85,6 @@ class StringSplitDefinition(Definition):
     
 
 # Compilation
-
-compile.add_initializer(cstdlib.define_strcmp)
-compile.add_initializer(cstdlib.define_strcpy)
-compile.add_initializer(cstdlib.define_strcat)
-compile.add_initializer(cstdlib.define_strlen)
-compile.add_initializer(cstdlib.define_malloc)
 
 @builtin_definition
 class CompileStringEqualDefinition(Definition):

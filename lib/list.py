@@ -8,7 +8,6 @@ import llvmlite.ir as ir
 from constants import Expression, Property, Scope
 if 'definitions' in globals():
     compile = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile.py')
-    cstdlib = globals()['definitions'].ImportPythonDefinition.import_module(__file__, 'compile/cstdlib.py')
 else:
     raise ImportError("definitions module not found, cannot import compile module")
 
@@ -104,9 +103,6 @@ class ListEqualDefinition(Definition):
         ])
     
 # Compilation
-
-compile.add_initializer(cstdlib.define_malloc)
-compile.add_initializer(cstdlib.define_realloc)
 
 # Lists are implemented as a structure { size, items... }
 # The pointer passed around is to the first item. 

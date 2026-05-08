@@ -15,11 +15,6 @@ llvm.initialize_native_asmprinter()
 CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__']
 CompileConstructType = ir.Module | ir.IRBuilder | str
 
-initializers: list[Callable[[ir.Module], None]] = []
-def add_initializer(init: Callable[[ir.Module], None]):
-    if init not in initializers:
-        initializers.append(init)
-
 def get_compile_construct(scope: Scope, name: CompileConstruct) -> Any: # CompileConstructType
     module_expr = scope.force_var_lookup(name)
     module_compile_prop = module_expr.force_get_property('compile')
@@ -71,9 +66,8 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
 
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
-    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, llvm_func: ir.Function):
-        assert properties[-1].property.s == llvm_func.name
-        self.llvm_func = llvm_func
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool):
+        assert properties[-1].property.s == prop_symb
         self.prop_symb = prop_symb
         self.properties = properties
         self.is_compound = is_compound
@@ -82,8 +76,7 @@ class CompiledUserDefinition(Definition):
 
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        call_prop = lhs.force_get_property(self.llvm_func.name)
-        assert self.llvm_func.name == call_prop.property.s
+        call_prop = lhs.force_get_property(self.prop_symb)
 
         # make a call to the function
         builder = get_compile_construct(scope, '__BUILDER__')
@@ -92,7 +85,9 @@ class CompiledUserDefinition(Definition):
             arg_expr = expression_compile_all(prop, scope)
             arg_val = get_compiled(arg_expr, scope)
             arg_vals.append(arg_val)
-        call_res = builder.call(self.llvm_func, arg_vals, f'{self.llvm_func.name}_call_tmp')
+        module = get_compile_construct(scope, '__MODULE__')
+        llvm_func = module.get_global(self.prop_symb)
+        call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=call_res)
         return lhs.replace_property('compile', compile_prop)
     
@@ -491,8 +486,8 @@ class CompileDefinitionDefinition(Definition):
         parameters = [ir.IntType(64) for _ in param_names]
 
         properties = [p for p in lhs.properties if p.property != 'identifier']
+        defn = CompiledUserDefinition(func_name, properties, is_compound=True)
         func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), parameters), name=func_name)
-        defn = CompiledUserDefinition(func_name, properties, is_compound=True, llvm_func=func)
         scope.local_defns.setdefault('compile', []).append(defn)
 
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
@@ -517,7 +512,48 @@ class CompileDefinitionDefinition(Definition):
 
 
 # TODO make the compilation imports/linking more explicit
-compiled_modules_to_import = {}
+imported_modules = {}
+
+# Create all cstdlib function declarations
+def _cstdlib_module():
+    module = ir.Module(name="stdlib")
+    module.triple = llvm.Target.from_default_triple().triple
+    module.data_layout = llvm.Target.from_default_triple().create_target_machine().target_data # type: ignore
+
+    # stdlib
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.IntType(64)]), name="malloc")
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.IntType(64)]), name="realloc")
+    ir.Function(module, ir.FunctionType(ir.VoidType(), [ir.PointerType(ir.IntType(8))]), name="free")
+    # stdio
+    ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True), name="printf")
+    ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="puts")
+    # string
+    ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcmp')
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcpy')
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcat')
+    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))]), name='strlen')
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strtok')
+    return module
+
+def _imported_signature(src:ir.Module, exclude: Collection[ir.Function] = []) -> tuple[ir.Module, Collection[ir.Function]]:
+    return src, [func for func in src.functions if func not in exclude]
+
+# Module for our own stdlib functions
+imported_modules['stdlib'] = _imported_signature(_cstdlib_module())
+
+def add_stdlib_definition(callback: Callable[[ir.Module], None]):
+    module, old = imported_modules['stdlib']
+    callback(module)
+    imported_modules['stdlib'] = _imported_signature(module)
+
+def inherit_declarations(dst:ir.Module):
+    inherited = set()
+    for module, functions in imported_modules.values():
+        for func in functions:
+            added = ir.Function(dst, func.function_type, name=func.name)
+            inherited.add(added)
+        # TODO Also add declarations for when we later want to link global variables
+    return inherited
 
 @builtin_definition
 class ImportCompileDefinition(Definition):
@@ -536,25 +572,22 @@ class ImportCompileDefinition(Definition):
         compile_scope = Scope(parent_scope=scope)
         func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
-        for init in initializers:
-            init(module)
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
 
-        from main import resolve_property_on
-        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])
+        inherited = inherit_declarations(module)
+
+        from main import resolve_last_property
+        compiled_expr = resolve_last_property(lhs, compile_scope, [])
         compiled_val = get_compiled(compiled_expr, compile_scope)
-        if compiled_val is None:
-            compiled_val = ir.Constant(ir.IntType(64), 0)
         builder.ret(compiled_val)
 
-        # Output compiled binary file
-        llvm_ir = str(module)
-        print(llvm_ir)
-        llvm_mod = llvm.parse_assembly(llvm_ir)
-        llvm_mod.verify()
-        compiled_modules_to_import[name] = llvm_mod
+        # Output module 
+        imported_modules[name] = _imported_signature(module, inherited)
+        # Export global definitions as well
+        for defn_name, defn in compile_scope.local_defns.items():
+            scope.local_defns.setdefault(defn_name, []).extend(defn)
         return lhs
 
 @builtin_definition
@@ -578,11 +611,11 @@ class CompileToDefinition(Definition):
         compile_scope = Scope(parent_scope=scope)
         func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
         builder = ir.IRBuilder(func.append_basic_block(name="entry"))
-        for init in initializers:
-            init(module)
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
+
+        inherited = inherit_declarations(module)
 
         from main import resolve_property_on
         compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])
@@ -591,9 +624,11 @@ class CompileToDefinition(Definition):
 
         # Output compiled binary file
         llvm_ir = str(module)
-        print(llvm_ir)
         llvm_mod = llvm.parse_assembly(llvm_ir)
-        for imported_mod in compiled_modules_to_import.values():
+        for module, functions in imported_modules.values():
+            module_ir = str(module)
+            imported_mod = llvm.parse_assembly(module_ir)
+            imported_mod.verify()
             llvm_mod.link_in(imported_mod)
         llvm_mod.verify()
 
