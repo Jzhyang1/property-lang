@@ -31,14 +31,6 @@ def pwarning(*msg, anchor:Token|None=None):
     header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}:"
     print(header, *msg, file=sys.stderr)
 
-def remove_property(properties: list['Property'], property_name: str, reverse: bool=False) -> bool:
-    seq = reversed(range(len(properties))) if reverse else range(len(properties))
-    for i in seq:
-        if properties[i].property == property_name:
-            properties.pop(i)
-            return True
-    return False
-
 def expression_to_associated_value(expr: Expression) -> Any:
     if (ival := expr.try_get_property('integer')) is not None:
         return ival.associated_value
@@ -136,21 +128,17 @@ class AssignDefinition(Definition):
     @binary_apply
     def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
         if (expr := scope.var_lookup(lhs.symbol.s)) is None:
-            expr = Expression(lhs.symbol, [
-                p.copy() for p in lhs.properties if p.property.s != 'identifier'
-            ])
+            expr = lhs.copy().discard_property('identifier')
             scope.local_vars[lhs.symbol.s] = expr
         
         for p in rhs.properties:
             if (val := expr.try_get_property(p.property.s)) is None:
                 expr.properties.append(p.copy())
             else:
-                if p.is_association:
-                    val.is_association = True
-                    val.associated_value = p.associated_value
-                if p.is_compound:
-                    val.is_compound = True
-                    val.compound_properties = p.compound_properties
+                val.is_association = p.is_association
+                val.associated_value = p.associated_value
+                val.is_compound = p.is_compound
+                val.compound_properties = p.compound_properties
         return rhs
     
 @builtin_definition
@@ -174,23 +162,14 @@ class ControlElseDefinition(Definition):
     property_names = ['integer']
     @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        ival = lhs.try_get_property('integer')
-        assert ival is not None
+        ival = lhs.force_get_property('integer')
         if ival.associated_value == 0:
-            from main import resolve_last_property, resolve_property_on
-            res = lhs
+            from main import expression_resolve_all, resolve_last_property
             for expr in body:
-                res = resolve_last_property(expr, scope, [])
+                res = expression_resolve_all(expr, scope, constants.resolve)
+                res = resolve_last_property(res, scope, [])
             return res
-        else:
-            # pop all properties until 'then' or empty
-            properties = lhs.properties.copy()
-            while len(properties) > 0 and properties[-1].property.s != 'then':
-                properties.pop()
-            if len(properties) == 0:
-                return lhs
-            from main import resolve_last_property, resolve_property_on
-            return resolve_last_property(Expression(lhs.symbol, properties), scope, [])
+        return lhs
 
 @builtin_definition
 class ControlThenDefinition(Definition):
@@ -199,16 +178,35 @@ class ControlThenDefinition(Definition):
     property_names = ['integer']
     @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        ival = lhs.try_get_property('integer')
-        assert ival is not None
+        ival = lhs.force_get_property('integer')
         if ival.associated_value != 0:
-            from main import resolve_last_property, resolve_property_on
-            res = lhs
+            from main import expression_resolve_all, resolve_last_property
             for expr in body:
-                res = resolve_last_property(expr, scope, [])
+                res = expression_resolve_all(expr, scope, constants.resolve)
+                res = resolve_last_property(res, scope, [])
+            return res
+        return lhs
+
+@builtin_definition
+class ControlThenElseDefinition(Definition):
+    symbol = 'else'
+    param_names = ['false_branch']
+    property_names = ['integer', 'then']
+    @multi_apply
+    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+        ival = lhs.force_get_property('integer')
+        lhs, then_prop = lhs.discard_properties_after('then')
+        from main import expression_resolve_all, resolve_last_property
+        if ival.associated_value == 0:
+            for expr in body:
+                res = expression_resolve_all(expr, scope, constants.resolve)
+                res = resolve_last_property(res, scope, [])
             return res
         else:
-            return lhs
+            for expr in then_prop.compound_properties:
+                res = expression_resolve_all(expr, scope, constants.resolve)
+                res = resolve_last_property(res, scope, [])
+            return res
 
 # Misc.
 
@@ -229,18 +227,15 @@ class DefinitionDefinition(Definition):
     param_names = ['body']
     @multi_apply
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        *placeholder_properties, p = lhs.properties
-        # remove 'identifier' from properties and parameters
-        remove_property(placeholder_properties, 'identifier')
-        parameters = [Expression(e.symbol, e.properties) for e in p.compound_properties]
-        for e in parameters:
-            remove_property(e.properties, 'identifier')
+        lhs = lhs.discard_property('identifier')
+        p = lhs.properties.pop()
+        p.compound_properties = [e.discard_property('identifier') for e in p.compound_properties]
 
         # add to definitions
         from main import UserDefinedDefinition
         scope.local_defns.setdefault(p.property.s, []).append(
-            UserDefinedDefinition(lhs.symbol.s, placeholder_properties, 
-                       p.is_compound, p.compound_properties, body)
+            UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
+                       p.is_compound, p.compound_properties, body, scope)
         )
         return Expression(p.property, [
             Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
@@ -292,7 +287,7 @@ class IdentifierDefinition(Definition):
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         if (val := scope.var_lookup(lhs.symbol.s)) is None:
             raise CompileError(f"unable to resolve identifier {lhs}", anchor=lhs.symbol)
-        return val
+        return val.copy()
     
 def find_import_file(path_anchor: str, path: str):
     path_relative = os.path.join(os.path.dirname(path_anchor), path)

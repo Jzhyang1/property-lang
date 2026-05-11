@@ -69,6 +69,8 @@ class Expression:
         return str(self.symbol) + ':' + ' '.join(map(str, self.properties)) if len(self.properties) > 0 else str(self.symbol)
     def __repr__(self) -> str:
         return str(self)
+    def copy(self):
+        return Expression(self.symbol, [property.copy() for property in self.properties])
     
     def try_get_property(self, property_name: str) -> Property | None:
         for property in self.properties:
@@ -103,6 +105,21 @@ class Expression:
         if i < 0:
             raise Exception(f"property {prop_str} not found in expression {self}")
         return Expression(self.symbol, properties[:i]), properties[i]
+    def discard_property(self, prop_str: str, all_occurrences: bool = False) -> 'Expression':
+        '''
+        removes the first property with the given name from the properties list
+        if all_occurrences is True, removes all properties with the given name
+        '''
+        if all_occurrences:
+            new_props = [property for property in self.properties if property.property.s != prop_str]
+        else:
+            new_props = [property for property in self.properties]
+            for i in range(len(new_props)):
+                if new_props[i].property.s == prop_str:
+                    new_props.pop(i)
+                    break
+        new_expr = Expression(self.symbol, new_props)
+        return new_expr
     
     def pop_properties_after(self, prop_str: str) -> tuple['Expression', list[Property]|None]:
         '''
@@ -119,12 +136,13 @@ class Expression:
 
 class Definition:
     def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
-                 body: list[Expression]):
+                 body: list[Expression], scope: 'Scope|None' = None):
         self.prop_symb = prop_symb
         self.properties = properties
         self.is_compound = is_compound
         self.params = params
         self.body = body
+        self.scope = scope
     
     def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
         '''
@@ -159,4 +177,5 @@ class Scope:
         return var
     
     def __str__(self) -> str:
-        return f'Scope(vars={self.local_vars}, defns={self.local_defns}, parent={self.parent})'
+        s = "Global" if self.is_global else "Scope"
+        return f'{s}(vars={self.local_vars}, defns={self.local_defns}, parent={self.parent})'
