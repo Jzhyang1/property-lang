@@ -22,3 +22,5 @@ if __name__ == "__main__":
     print('----------')
     for var in scope.local_vars:
         print(scope.local_vars[var])
+    # for defn in scope.local_defns:
+    #     print(defn, scope.local_defns[defn])

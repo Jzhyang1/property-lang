@@ -7,18 +7,17 @@ from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        scope = scope.parent or scope
         new_varscope = {
             self.prop_symb: expr
         }
         for arg, param in zip(args, self.params):
             new_varscope[param.symbol.s] = arg
-        new_scope = Scope(local_vars=new_varscope, parent_scope=scope)
+        new_scope = Scope(local_vars=new_varscope, parent_scope=self.scope)
         last = expr
         for local_expr in self.body:
             try:
                 last = expression_resolve_all(local_expr, new_scope, constants.resolve)
-            except Exception | AssertionError as e:
+            except Exception as e:
                 raise CompileError(f"error while resolving {local_expr}", anchor=local_expr.symbol, child_error=e)
         return last
 
@@ -64,7 +63,8 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     args = [expression_resolve_all(local_expr, scope, who_to_resolve) for local_expr in prop.compound_properties]
 
     # apply the best match
-    return best_match.apply(expr, args, scope, prop)
+    res = best_match.apply(expr, args, scope, prop)
+    return res
 
 def resolve_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
     '''
@@ -101,7 +101,7 @@ def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collec
 
 def run_file(file: str):
     built, i = build_tree(tokenize(file))
-    builtin_scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions)
+    builtin_scope = Scope(local_vars=make_global_vars(file), local_defns=global_definitions, is_global=True)
     scope = Scope(parent_scope=builtin_scope, is_global=True)
     for expr in built:
         expr = expression_resolve_all(expr, scope, constants.resolve)

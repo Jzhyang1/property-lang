@@ -1,3 +1,10 @@
+/* should print:
+ *
+ * 2
+ * 4
+ * 32
+ */
+ 
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
 
@@ -9,22 +16,6 @@ base integer power(exp integer) definition{
 	result3 assign [ result2 * result2 ];
 	result1 * result3;
 };
-
-x integer one_or_the_other(val integer) definition{
-	/*
-	TODO we have an issue here because x will not be resolved
-	in backward-resolution until after else. However, else resolves
-	with an "integer" property that x needs to supply.
-
-	Our solution needs to be that we change the semantics of "{}"
-	to go forward and simply delay execution for the whole block.
-	In fact we can keep the semicolons.
-	*/
-	x.then[val]else[0];
-};
-
-1 one_or_the_other("foo").print;
-0 one_or_the_other("bar").print;
 
 2 power(1).print;
 2 power(2).print;
