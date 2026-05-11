@@ -19,8 +19,7 @@ class ListDefinition(Definition):
     @multi_apply
     def apply(self, lhs: Expression, items: list[Expression], scope: Scope) -> Expression:
         prop = Property(lhs.symbol.create_renamed('list'), is_association=True, associated_value=items)
-        props = lhs.properties + [prop]
-        return Expression(lhs.symbol, props)
+        return lhs.create_with_property(prop)
 
 @builtin_definition
 class ListAppendDefinition(Definition):

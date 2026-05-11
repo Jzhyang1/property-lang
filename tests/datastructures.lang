@@ -1,8 +1,17 @@
 "lib/print.py" python definition import;
 "lib/list.py" python definition import;
+"lib/structure.py" python definition import;
 
-y list[1,2,3,4] declare;
+_ struct structure(
+	foo integer,
+	bar integer
+);
+x assign[ _ struct ];
+x.foo assign(12);
+x.foo.print;
+
+y assign[ _ list[1,2,3,4]];
 
 y.at(0).print;
-y.at[1] print;
+y.at[1].print;
 y.print;
