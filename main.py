@@ -50,7 +50,9 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     for p in reversed(expr.properties):
         if len(matches_sets) <= 1:
             break
-        matches_sets = [(ps, m) for ps, m in matches_sets if p.property.s in ps]
+        new_matches_sets = [(ps, m) for ps, m in matches_sets if p.property.s in ps]
+        if len(new_matches_sets) != 0:
+            matches_sets = new_matches_sets
     # if there are multiple matches with the same number of properties, print an error
     #  we know this happened if len(matches_sets) == 0 since that means we discarded multiple matches at the same time
     if len(matches_sets) == 0:

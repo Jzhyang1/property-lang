@@ -525,6 +525,9 @@ def _cstdlib_module():
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.IntType(64)]), name="realloc")
     ir.Function(module, ir.FunctionType(ir.VoidType(), [ir.PointerType(ir.IntType(8))]), name="free")
     # stdio
+    ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name="fopen")
+    ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="fclose")
+    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.PointerType(ir.IntType(8))]), name="fread")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True), name="printf")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="puts")
     # string
