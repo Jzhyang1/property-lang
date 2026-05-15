@@ -18,11 +18,20 @@ y.at[1].print;
 y.print;
 
 0 do {
+	_ struct1 structure(
+		bin integer,
+		baz integer,
+	);
 	_ struct2 structure(
 		foo integer,
-		bar integer,
+		bar struct1,
 	);
-	_ struct2(
-		12, 11
-	).foo.print;
-} compile_to("struct_print12.out");
+	z assign[_ struct2(
+		12;
+		_ struct1(
+			11,
+			10,
+		);
+	)];
+	z.bar.baz.print;
+} compile_to("struct_print10.out");

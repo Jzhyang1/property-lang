@@ -468,17 +468,14 @@ def create_list(anchor: Token, value: list[Expression]) -> Expression:
 @builtin_definition
 class LogicalNotDefinition(Definition):
     symbol = 'logical_not'
+    property_names = ['integer']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        if (ival := lhs.try_get_property('integer')) is None:
-            pwarning(f"logical not can not be applied to {lhs}")
-            return lhs
-        else:
-            updated_ival = ival.copy()
-            updated_ival.is_association = True
-            updated_ival.associated_value = not updated_ival.associated_value
-            properties = [updated_ival if property == ival else property for property in lhs.properties]
-            return Expression(lhs.symbol, properties)
+        ival = lhs.force_get_property('integer')
+        updated_ival = ival.copy()
+        updated_ival.is_association = True
+        updated_ival.associated_value = not updated_ival.associated_value
+        return lhs.replace_property('integer', updated_ival)
     
 @builtin_definition
 class PropertiesDefinition(Definition):

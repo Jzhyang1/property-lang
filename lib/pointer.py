@@ -43,11 +43,12 @@ class ReferenceDefinition(Definition):
 class AllocateDefinition(Definition):
     # Allocates a binary block of the given size in bytes and returns a pointer to it
     symbol = 'allocate'
-    param_names = ['value']
+    param_names = ['value'] # TODO given the form: _ type allocate(count), allocate count of type
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         size = lhs.force_get_property('integer').associated_value
-        # TODO not sure what to do with size since python integers are unbounded
+        if size < 0:
+            raise CompileError(f"Cannot allocate negative size {size}", anchor=lhs.symbol)
         # Create an Expression that is not associated with any variable
         allocated = Expression(lhs.symbol.create_renamed('allocated'), [
             Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=0)
@@ -85,6 +86,7 @@ class CompileDereferenceDefinition(Definition):
 
 @builtin_definition
 class CompileReferenceDefinition(Definition):
+    # TODO we can use pointers now (instead of casting everything to int)
     symbol = 'compile'
     property_names = ['reference']
     @unary_apply

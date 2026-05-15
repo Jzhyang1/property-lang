@@ -12,8 +12,8 @@ if not '__LANG__' in globals():
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
 
-CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__']
-CompileConstructType = ir.Module | ir.IRBuilder | str
+CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__', '__TYPE_MAP__']
+CompileConstructType = ir.Module | ir.IRBuilder | str | dict[str, Any]
 
 def get_compile_construct(scope: Scope, name: CompileConstruct) -> Any: # CompileConstructType
     module_expr = scope.force_var_lookup(name)
@@ -28,6 +28,8 @@ def set_compile_construct(anchor: Token, scope: Scope, name: CompileConstruct, v
 
 def compile_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
     from main import resolve_property_on
+    prop = expr.properties[-1]
+    prop.compound_properties = [expression_compile_all(local_expr, scope) for local_expr in prop.compound_properties]
     compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope, additional_compound)
     return compiled_expr
 
@@ -63,6 +65,12 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
         raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
 
+def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
+    type_map = get_compile_construct(scope, '__TYPE_MAP__')
+    for prop in reversed(expr.properties):
+        if prop.property.s in type_map:
+            return type_map[prop.property.s]
+    raise CompileError(f"Cannot determine type of expression '{expr}'", anchor=expr.symbol)
 
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
@@ -297,13 +305,14 @@ class CompileDeclareDefinition(Definition):
     
     @classmethod
     def create_variable(cls, name: str, scope: Scope, base_properties: Expression) -> Expression:
-        # TODO local variables
+        # Determine the "type" of the variable from base_properties
+        var_type = get_type(base_properties, scope)
         if scope.is_global:
-            var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), ir.IntType(64), name=name)
+            var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), var_type, name=name)
             var.linkage = 'internal'
         else:
             builder = get_compile_construct(scope, '__BUILDER__')
-            var = builder.alloca(ir.IntType(64), name=name)
+            var = builder.alloca(var_type, name=name)
         anchor = base_properties.symbol
         compile_prop = Property(anchor.create_renamed('compile'), is_association=True, associated_value=var)
         res = scope.local_vars[name] = base_properties.replace_property('compile', compile_prop)
@@ -578,6 +587,10 @@ class ImportCompileDefinition(Definition):
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
+        set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
+            'integer': ir.IntType(64),
+            'string': ir.PointerType(ir.IntType(8)),
+        })
 
         inherited = inherit_declarations(module)
 
@@ -617,6 +630,10 @@ class CompileToDefinition(Definition):
         set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
+        set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
+            'integer': ir.IntType(64),
+            'string': ir.PointerType(ir.IntType(8)),
+        })
 
         inherited = inherit_declarations(module)
 

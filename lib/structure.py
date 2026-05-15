@@ -1,6 +1,6 @@
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
-    from definitions import builtin_definition, unary_apply, binary_apply, multi_apply, create_list, CompileError
+    from definitions import builtin_definition, unary_apply, binary_apply, multi_apply, CompileError
 
 # We extend compilation
 import llvmlite.ir as ir
@@ -141,7 +141,7 @@ class CompileStructureDefinition(Definition):
         # and the CompileStructure Instance/FieldAccess/FieldAssignment definitions
         module: ir.Module = compile.get_compile_construct(scope, '__MODULE__')
         llvm_struct_type = module.context.get_identified_type(name.property.s)
-        llvm_struct_type.set_body(*[ir.IntType(64)] * len(fields))   # For simplicity, we assume all fields are 64-bit integers
+        llvm_struct_type.set_body(*[compile.get_type(field, scope) for field in fields])
         for i, field in enumerate(fields):
             field_name = field.symbol
             # Create the field definitions
@@ -152,4 +152,7 @@ class CompileStructureDefinition(Definition):
         # Create the structure instance definition
         instance_defn = CompileStructureInstanceDefinition('compile', [name], False, [], [], structure=llvm_struct_type)
         scope.local_defns.setdefault('compile', []).append(instance_defn)
+        
+        type_map = compile.get_compile_construct(scope, '__TYPE_MAP__')
+        type_map[name.property.s] = llvm_struct_type
         return lhs
