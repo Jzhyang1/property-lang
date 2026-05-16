@@ -29,7 +29,8 @@ def set_compile_construct(anchor: Token, scope: Scope, name: CompileConstruct, v
 def compile_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
     from main import resolve_property_on
     prop = expr.properties[-1]
-    prop.compound_properties = [expression_compile_all(local_expr, scope) for local_expr in prop.compound_properties]
+    if prop.start_char != '{':
+        prop.compound_properties = [expression_compile_all(local_expr, scope) for local_expr in prop.compound_properties]
     compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope, additional_compound)
     return compiled_expr
 
@@ -158,7 +159,7 @@ class CompileStringDefinition(Definition):
 
     @classmethod
     def create_string(cls, str_val: str, scope: Scope) -> ir.Value:
-        builder = get_compile_construct(scope, '__BUILDER__')
+        builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
         file_str = get_compile_construct(scope, '__IMPORT_PATH__')
         cache_key = (file_str, str_val)
         if cache_key in CompileStringDefinition.compiled_cache:
@@ -172,9 +173,8 @@ class CompileStringDefinition(Definition):
         shared_str.linkage = 'internal'
         shared_str.global_constant = True
         shared_str.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val) + 1), bytearray((str_val + '\0').encode("utf8"))) # type: ignore
-        shared_str_int = builder.ptrtoint(shared_str, ir.IntType(64))
-        CompileStringDefinition.compiled_cache[cache_key] = shared_str_int
-        return shared_str_int
+        CompileStringDefinition.compiled_cache[cache_key] = shared_str
+        return builder.bitcast(shared_str, ir.PointerType(ir.IntType(8))) # type: ignore
 
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
@@ -491,16 +491,19 @@ class CompileDefinitionDefinition(Definition):
         func_prop = lhs.properties[-1]
         func_name = func_prop.property.s
         # TODO types for parameters and return value
-        param_names = [lhs.symbol.s] + [prop.symbol.s for prop in func_prop.compound_properties]
-        parameters = [ir.IntType(64) for _ in param_names]
+        params = [lhs] + func_prop.compound_properties
+        param_names = [param.symbol.s for param in params]
+        param_types = [get_type(param, scope) for param in params]
 
         properties = [p for p in lhs.properties if p.property != 'identifier']
         defn = CompiledUserDefinition(func_name, properties, is_compound=True)
-        func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), parameters), name=func_name)
+        # TODO return a non-integer type
+        func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), param_types), name=func_name)
+        block = func.append_basic_block(name=func_name)
         scope.local_defns.setdefault('compile', []).append(defn)
 
-        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
         compile_scope = Scope(parent_scope=scope)
+        builder = ir.IRBuilder(block)
         set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
         # Populate parameters
         for param_name, param in zip(param_names, func.args):
@@ -590,6 +593,7 @@ class ImportCompileDefinition(Definition):
         set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
             'integer': ir.IntType(64),
             'string': ir.PointerType(ir.IntType(8)),
+            'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
         })
 
         inherited = inherit_declarations(module)
@@ -635,7 +639,7 @@ class CompileToDefinition(Definition):
             'string': ir.PointerType(ir.IntType(8)),
         })
 
-        inherited = inherit_declarations(module)
+        inherited = inherit_declarations(module) # Add type definitions to module
 
         from main import resolve_property_on
         compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])

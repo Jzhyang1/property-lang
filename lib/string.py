@@ -101,8 +101,8 @@ class CompileStringEqualDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         module = compile.get_compile_construct(scope, '__MODULE__')
 
-        lval = builder.inttoptr(compile.get_compiled(lhs, scope), ir.PointerType(ir.IntType(8)))
-        rval = builder.inttoptr(compile.get_compiled(rhs, scope), ir.PointerType(ir.IntType(8)))
+        lval = compile.get_compiled(lhs, scope)
+        rval = compile.get_compiled(rhs, scope)
         # We can use the C strcmp function to compare the strings
         res = builder.call(module.get_global('strcmp'), [lval, rval])
         # extend to 64-bit
@@ -126,8 +126,8 @@ class CompileStringConcatDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         module = compile.get_compile_construct(scope, '__MODULE__')
 
-        lval = builder.inttoptr(compile.get_compiled(lhs, scope), ir.PointerType(ir.IntType(8)))
-        rval = builder.inttoptr(compile.get_compiled(rhs, scope), ir.PointerType(ir.IntType(8)))
+        lval = compile.get_compiled(lhs, scope)
+        rval = compile.get_compiled(rhs, scope)
 
         # We can use the C strcat function to concatenate the strings
         # However, we need to allocate enough space for the result first
@@ -138,7 +138,6 @@ class CompileStringConcatDefinition(Definition):
         malloced_ptr = builder.call(module.get_global('malloc'), [total_len_with_null])
         lcopied = builder.call(module.get_global('strcpy'), [malloced_ptr, lval])
         res = builder.call(module.get_global('strcat'), [lcopied, rval])
-        res = builder.ptrtoint(malloced_ptr, ir.IntType(64))
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.replace_property('compile', compile_prop)
     

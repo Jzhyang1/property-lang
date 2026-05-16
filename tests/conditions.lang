@@ -13,9 +13,9 @@
  */
 "lib/print.py" python definition import;
 
-0 then("haz" print)else("ard" print).print;
-1 then("foo" print)else("bar" print).print;
-2 then("woo" print).print;
-3 else("tin" print).print;
-0 then("sin" print).print;
-0 else("cos" print).print;
+0 then{"haz" print.}else{"ard" print.}.print;
+1 then{"foo" print.}else{"bar" print.}.print;
+2 then{"woo" print.}.print;
+3 else{"tin" print.}.print;
+0 then{"sin" print.}.print;
+0 else{"cos" print.}.print;

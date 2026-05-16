@@ -15,11 +15,11 @@ _ compile machine_name.print;
 
 /* 0 do (...) -> this returns 0 */
 0 do (
-	1 then[2+3 print]else[99 print];
+	1 then{2+3 print.}else{99 print.};
 ) compile_to("print5.out");
 
 0 do (
-	_ print_hello definition{
+	0 print_hello definition{
 		"Hello, " + "World!" . print;
 		0;
 	};

@@ -164,10 +164,9 @@ class ControlElseDefinition(Definition):
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         ival = lhs.force_get_property('integer')
         if ival.associated_value == 0:
-            from main import expression_resolve_all, resolve_last_property
+            from main import expression_resolve_all
             for expr in body:
                 res = expression_resolve_all(expr, scope, constants.resolve)
-                res = resolve_last_property(res, scope, [])
             return res
         return lhs
 
@@ -180,10 +179,9 @@ class ControlThenDefinition(Definition):
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         ival = lhs.force_get_property('integer')
         if ival.associated_value != 0:
-            from main import expression_resolve_all, resolve_last_property
+            from main import expression_resolve_all
             for expr in body:
                 res = expression_resolve_all(expr, scope, constants.resolve)
-                res = resolve_last_property(res, scope, [])
             return res
         return lhs
 
@@ -196,16 +194,14 @@ class ControlThenElseDefinition(Definition):
     def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         ival = lhs.force_get_property('integer')
         lhs, then_prop = lhs.discard_properties_after('then')
-        from main import expression_resolve_all, resolve_last_property
+        from main import expression_resolve_all
         if ival.associated_value == 0:
             for expr in body:
                 res = expression_resolve_all(expr, scope, constants.resolve)
-                res = resolve_last_property(res, scope, [])
             return res
         else:
             for expr in then_prop.compound_properties:
                 res = expression_resolve_all(expr, scope, constants.resolve)
-                res = resolve_last_property(res, scope, [])
             return res
 
 # Misc.

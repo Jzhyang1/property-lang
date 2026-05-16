@@ -84,10 +84,9 @@ class CompilePrintStringDefinition(Definition):
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         lhs, _ = lhs.discard_properties_after('print')
-        builder = compile.get_compile_construct(scope, '__BUILDER__')
+        builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
         lhs_val = compile.get_compiled(lhs, scope)
         puts = compile.get_compile_construct(scope, '__MODULE__').get_global('puts')
-        str_arg = builder.inttoptr(lhs_val, ir.PointerType(ir.IntType(8)))
-        print_res = builder.call(puts, [str_arg], 'print_tmp')
+        print_res = builder.call(puts, [lhs_val], 'print_tmp')
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=lhs_val)
         return lhs.replace_property('compile', compile_prop)

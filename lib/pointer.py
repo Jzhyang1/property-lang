@@ -74,13 +74,12 @@ class CompilePointerDefinition(Definition):
 @builtin_definition
 class CompileDereferenceDefinition(Definition):
     symbol = 'compile'
-    property_names = ['dereference']
+    property_names = ['pointer', 'dereference']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        ptr_value = compile.get_compiled(lhs, scope)
+        ptr_value = compile.get_compiled(lhs, scope) # Should be of type ir.PointerType
         builder = compile.get_compile_construct(scope, '__BUILDER__')
-        ptr_value_ptr = builder.inttoptr(ptr_value, ir.PointerType(ir.IntType(64)))
-        res = builder.load(ptr_value_ptr)
+        res = builder.load(ptr_value)
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
         return lhs.replace_property('compile', compile_prop)
 
@@ -88,7 +87,7 @@ class CompileDereferenceDefinition(Definition):
 class CompileReferenceDefinition(Definition):
     # TODO we can use pointers now (instead of casting everything to int)
     symbol = 'compile'
-    property_names = ['reference']
+    property_names = ['identifier', 'reference']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         # We need to get the address of the variable being referenced
@@ -97,11 +96,9 @@ class CompileReferenceDefinition(Definition):
         if var is None:
             raise CompileError(f"Undefined variable '{name}'")
         var_ptr = compile.get_compiled(var, scope)
-        builder = compile.get_compile_construct(scope, '__BUILDER__')
-        var_ptr_int = builder.ptrtoint(var_ptr, ir.IntType(64))
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_ptr_int)
-        int_prop = Property(lhs.symbol.create_renamed('integer'))
-        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_ptr)
+        ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
+        return lhs.create_with_property(ptr_prop).replace_property('compile', compile_prop)
 
 @builtin_definition
 class CompileAllocateDefinition(Definition):
@@ -113,27 +110,25 @@ class CompileAllocateDefinition(Definition):
         builder = compile.get_compile_construct(scope, '__BUILDER__')
         # We must call malloc because size_value is not a constant
         allocated_ptr = builder.call(builder.get_global('malloc'), [size_value])
-        allocated_ptr_int = builder.ptrtoint(allocated_ptr, ir.IntType(64))
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=allocated_ptr_int)
-        int_prop = Property(lhs.symbol.create_renamed('integer'))
-        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=allocated_ptr)
+        ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
+        return lhs.create_with_property(ptr_prop).replace_property('compile', compile_prop)
     
 @builtin_definition
 class CompileDeallocateDefinition(Definition):
     symbol = 'compile'
-    property_names = ['deallocate']
+    property_names = ['pointer', 'deallocate']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         ptr_value = compile.get_compiled(lhs, scope)
         builder = compile.get_compile_construct(scope, '__BUILDER__')
-        ptr_value_ptr = builder.inttoptr(ptr_value, ir.PointerType(ir.IntType(64)))
-        builder.call(builder.get_global('free'), [ptr_value_ptr])
+        builder.call(builder.get_global('free'), [ptr_value])
         return lhs
     
 @builtin_definition
 class CompileReallocateDefinition(Definition):
     symbol = 'compile'
-    property_names = ['reallocate']
+    property_names = ['pointer', 'reallocate']
     param_names = ['new_size']
     @unary_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
@@ -145,10 +140,8 @@ class CompileReallocateDefinition(Definition):
         module = compile.get_compile_construct(scope, '__MODULE__')
 
         ptr_value = compile.get_compiled(lhs, scope)
-        ptr_value_ptr = builder.inttoptr(ptr_value, ir.PointerType(ir.IntType(64)))
         new_size_value = compile.get_compiled(new_size_expr, scope)
-        res_ptr_ptr = builder.call(module.get_global('realloc'), [ptr_value_ptr, new_size_value])
-        res_ptr = builder.ptrtoint(res_ptr_ptr, ir.IntType(64))
+        res_ptr = builder.call(module.get_global('realloc'), [ptr_value, new_size_value])
         compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res_ptr)
-        int_prop = Property(lhs.symbol.create_renamed('integer'))
-        return lhs.create_with_property(int_prop).replace_property('compile', compile_prop)
+        ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
+        return lhs.create_with_property(ptr_prop).replace_property('compile', compile_prop)
