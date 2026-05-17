@@ -1,6 +1,5 @@
 
-- Revise assign operator to be resolved based on the type it is being assigned to
-- Implement nested structures
+- more efficient search structure for resolution matches
 - Implement floats
 - Assembly properties (e.g. registers, operands)
 - Architecture and OS dependent properties
