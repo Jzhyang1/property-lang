@@ -14,10 +14,10 @@
  */
 22 + 33 print;
 
-x list declare;
-x.append(2);
-x.append(3);
+x assign[ _ list ];
+x assign[ x.append(2) ];
+x assign[ x.append(3) ];
 z assign[ x.each[ n increment definition{n + 1} ] ];
-y assign(z.at(1). < 4);
+y assign[ z.at(1). < 4 ];
 y.print;
 z.at(0).print;

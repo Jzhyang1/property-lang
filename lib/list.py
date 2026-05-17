@@ -23,7 +23,7 @@ class ListAppendDefinition(Definition):
         dst.is_association = True
         dst.associated_value = dst.associated_value or []
         dst.associated_value.append(rhs)
-        return rhs
+        return lhs
     
 @builtin_definition
 class ListAtDefinition(Definition):
@@ -35,7 +35,10 @@ class ListAtDefinition(Definition):
         lval = lhs.try_get_property('list')
         rval = rhs.try_get_property('integer')
         assert lval is not None and rval is not None
-        res = lval.associated_value[rval.associated_value]
+        if 0 <= rval.associated_value < len(lval.associated_value):
+            res = lval.associated_value[rval.associated_value]
+        else:
+            raise CompileError(f'Index out of bounds: {rval.associated_value}', anchor=rhs.symbol)
         return res
 
 @builtin_definition
