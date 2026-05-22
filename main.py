@@ -7,6 +7,7 @@ from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
+        self.trace_stack.append((expr, args, scope, prop))    # for trace prints
         new_varscope = {
             self.prop_symb: expr
         }
@@ -19,6 +20,7 @@ class UserDefinedDefinition(Definition):
                 last = expression_resolve_all(local_expr, new_scope, constants.resolve)
             except Exception as e:
                 raise CompileError(f"error while resolving {local_expr}", anchor=local_expr.symbol, child_error=e)
+        self.trace_stack.pop()
         return last
 
 

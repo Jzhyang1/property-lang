@@ -1,7 +1,7 @@
 /* should print:
  *
  * 55
- * False
+ * 0
  * 3
  */
 "lib/arithmetic.py" python definition import;

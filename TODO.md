@@ -1,5 +1,8 @@
-
+- Better type resolution for compile
+- Compile to Python
 - more efficient search structure for resolution matches
+- use deque instead of list for properties to see if it works better with compile
 - Implement floats
 - Assembly properties (e.g. registers, operands)
 - Architecture and OS dependent properties
+- Automate tests

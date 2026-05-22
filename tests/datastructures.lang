@@ -3,6 +3,7 @@
 "lib/structure.py" python definition import;
 "lib/compile.py" python definition import;
 
+/*
 _ struct structure(
 	foo integer,
 	bar integer
@@ -16,7 +17,7 @@ y assign[ _ list[1,2,3,4]];
 y.at(0).print;
 y.at[1].print;
 y.print;
-
+*/
 0 do {
 	_ struct1 structure(
 		bin integer,
@@ -34,4 +35,5 @@ y.print;
 		);
 	)];
 	z.bar.baz.print;
+	0;
 } compile_to("struct_print10.out");

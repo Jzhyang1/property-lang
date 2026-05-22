@@ -1,17 +1,9 @@
-/* This is the first line that should be printed;
-*/
-/* This is the second line that should be printed;
-*/
-
 "lib/print.py" python definition import;
 "lib/io.py" python definition import;
 
-y file declare;
-y.open("tests/fileread.lang");
+y assign[_ file.open("tests/fileread.lang")];
 
-x assign(y.read(";"););
-z assign(y.read(";"););
+x assign[y.read];
 x.print;
-z.print;
 
 y.close;

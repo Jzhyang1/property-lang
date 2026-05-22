@@ -8,7 +8,7 @@ _ compile machine_name.print;
 /* 7+5 expands into 7 +(5.). which
 	because of the `.` it is evaluated at compile-time
 	to be the constant 12 */
-0 do(
+0 do (
 	x assign[12];
 	x.print;
 ) compile_to("print12.out");
@@ -20,7 +20,7 @@ _ compile machine_name.print;
 
 0 do (
 	0 print_hello definition{
-		"Hello, " + "World!" . print;
+		"Hello, " + "World!" print;
 		0;
 	};
 ) compile import(hello_printer);

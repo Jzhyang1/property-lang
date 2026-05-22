@@ -4,10 +4,10 @@ import os
 from typing import Any, Callable, NoReturn
 from functools import wraps
 
-from constants import Definition, Scope, Expression, Property, Token, token_types
+from constants import Definition, LambdaDefinition, Scope, Expression, Property, Token, token_types
 import constants
 
-__LANG__ = '0.0.1'
+__LANG__ = '0.0.2'
 global_definitions: dict[str, list[Definition]] = {}
 
 def make_global_vars(file: str) -> dict[str, Expression]:
@@ -20,15 +20,25 @@ def make_global_vars(file: str) -> dict[str, Expression]:
     }
     return global_vars
 
+def print_trace(trace_stack: list[tuple[Expression, list[Expression], Scope, Property]]):
+    print("Traceback (most recent call last):", file=sys.stderr)
+    for (expr, args, scope, prop) in trace_stack:
+        symbol = expr.symbol
+        args_str = ', '.join(str(arg.symbol) for arg in args)
+        print(f'  {symbol.file}:{symbol.row}:{symbol.col} {expr.symbol} given {prop}({args_str})', file=sys.stderr)
+
 class CompileError(Exception):
     def __init__(self, *msg, anchor: Token|None = None, child_error: Exception|AssertionError|None = None):
-        header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}:"
+        # Log trace from Definition
+        print_trace(Definition.trace_stack)
+        header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}"
         # If there is a child error, we include its args in our message
         child_error_messages = child_error.args if child_error is not None else ()
         super().__init__(header, *msg, *child_error_messages)
 
 def pwarning(*msg, anchor:Token|None=None):
-    header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}:"
+    print_trace(Definition.trace_stack)
+    header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}"
     print(header, *msg, file=sys.stderr)
 
 def expression_to_associated_value(expr: Expression) -> Any:
@@ -59,231 +69,161 @@ def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expr
     else:
         raise CompileError(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
 
-def get_defn_file(defn_class) -> str:
-    return inspect.getfile(defn_class) or "<imported file>"
-def get_defn_line(defn_class) -> int:
-    try:            return inspect.getsourcelines(defn_class)[1]
+def get_defn_file(source_type_object) -> str:
+    return inspect.getfile(source_type_object) or "<imported file>"
+def get_defn_line(source_type_object) -> int:
+    try:            return inspect.getsourcelines(source_type_object)[1]
     except OSError: return 0
 
-def build_defn_instance(defn_class) -> Definition:
-    symbol: str = defn_class.symbol
-    file = get_defn_file(defn_class)
-    row = get_defn_line(defn_class)
-    if hasattr(defn_class, 'param_names'):
-        is_compound = True
-        params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) 
-                  for param_name in defn_class.param_names]
-    else:
-        is_compound = False
-        params = []
 
-    if hasattr(defn_class, 'property_names'):
-        properties: list[Property] = [Property(Token(p_name, file, row, 0, token_types['alnum'])) 
-                                      for p_name in defn_class.property_names]
-    else:
-        properties = []
-    return defn_class(symbol, properties, is_compound, params, [])
+# Helper functions for apply callables
+def pick_self(self, expr, args, scope, prop) -> Any:
+    return self
+def pick_lhs(self, expr, args, scope, prop) -> Expression:
+    return expr
+def pick_rhs(self, expr, args: list[Expression], scope, prop) -> Expression:
+    if len(args) ==  1: return args[0]
+    raise CompileError(f"expected exactly one argument for rhs, got {args}")
+def pick_args(self, expr, args: list[Expression], scope, prop) -> list[Expression]:
+    return args
+def pick_scope(self, expr, args, scope, prop) -> Scope:
+    return scope
+def pick_prop(self, expr, args, scope, prop) -> Property:
+    return prop
 
-def builtin_definition(defn_class):
-    global_definitions.setdefault(defn_class.symbol, []).append(
-        build_defn_instance(defn_class)
-    )
-    return defn_class
-
-# Wrappers for passing only the neccessary arguments
-
-def unary_apply(func: Callable[[Any, Expression, Scope], Expression]):
-    @wraps(func)
+def define_apply(func: Callable):
+    extractors = {
+        'self': pick_self,
+        'lhs': pick_lhs, 'rhs': pick_rhs,
+        'args':pick_args,'body':pick_args,
+        'scope':pick_scope,
+        'prop':pick_prop
+    }
+    # Precompute once
+    sig = inspect.signature(func)
+    param_extractors = [
+        extractors[name]
+        for name in sig.parameters
+    ]
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        return func(self, lhs, scope)
+        values = [
+            extractor(self, lhs, args, scope, prop)
+            for extractor in param_extractors
+        ]
+        return func(*values)
     return apply
 
-def binary_apply(func: Callable[[Any, Expression, Expression, Scope], Expression]):
-    @wraps(func)
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        if len(args) != 1:
-            raise CompileError(f"expected an argument, got {args}", anchor=lhs.symbol)
-        return func(self, lhs, args[0], scope)
-    return apply
-
-def multi_apply(func: Callable[[Any, Expression, list[Expression], Scope], Expression]):
-    @wraps(func)
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        return func(self, lhs, args, scope)
-    return apply
-
-def idempotent_apply(func: Callable[[Any], Any]):
-    @wraps(func)
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        return lhs.create_with_property(prop)
-    return apply
+# Decorator
+def register_definition(symbol: str, property_names: list[str] = [], param_names: list[str] = [], body: list[Expression] = [], is_compound: bool = False):
+    def decorator(func: Callable):
+        file = get_defn_file(func)
+        row = get_defn_line(func)
+        props = [Property(Token(p_name, file, row, 0, token_types['alnum'])) for p_name in property_names]
+        params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) for param_name in param_names]
+        defn = LambdaDefinition(symbol, props, is_compound, params, body, define_apply(func))
+        
+        global_definitions.setdefault(symbol, []).append(defn)
+        return func
+    return decorator
 
 # Definitions begin below
 
-@builtin_definition
-class AssignDefinition(Definition):
-    symbol = 'assign'
-    param_names = ['rval']
-    property_names = ['identifier']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if (expr := scope.var_lookup(lhs.symbol.s)) is None:
-            expr = lhs.copy().discard_property('identifier')
-            scope.local_vars[lhs.symbol.s] = expr
-        
-        for p in rhs.properties:
-            if (val := expr.try_get_property(p.property.s)) is None:
-                expr.properties.append(p.copy())
-            else:
-                val.is_association = p.is_association
-                val.associated_value = p.associated_value
-                val.is_compound = p.is_compound
-                val.compound_properties = p.compound_properties
-        return rhs
+@register_definition('assign', ['identifier'], ['rval'])
+def assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+    if (expr := scope.var_lookup(lhs.symbol.s)) is None:
+        expr = lhs.copy().discard_property('identifier')
+        scope.local_vars[lhs.symbol.s] = expr
     
-@builtin_definition
-class AssertDefinition(Definition):
-    symbol = 'assert'
-    param_names = ['assertion']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        if (ival := rhs.try_get_property('integer')) is None:
-            pwarning(f"assertion can not be applied to {rhs}")
-        elif ival.associated_value == 0:
-            raise CompileError(f"assertion failed {rhs}")
-        return lhs
+    for p in rhs.properties:
+        if (val := expr.try_get_property(p.property.s)) is None:
+            expr.properties.append(p.copy())
+        else:
+            val.is_association = p.is_association
+            val.associated_value = p.associated_value
+            val.is_compound = p.is_compound
+            val.compound_properties = p.compound_properties
+    return rhs
+    
+@register_definition('assert', ['integer'])
+def assert_(lhs: Expression) -> Expression:
+    ival = lhs.force_get_property('integer')
+    if ival.associated_value == 0:
+        raise CompileError(f"assertion failed {lhs}", anchor=lhs.symbol)
+    return lhs
     
 # Control flow
 
-@builtin_definition
-class ControlElseDefinition(Definition):
-    symbol = 'else'
-    param_names = ['false_branch']
-    property_names = ['integer']
-    @multi_apply
-    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        ival = lhs.force_get_property('integer')
-        if ival.associated_value == 0:
-            from main import expression_resolve_all
-            for expr in body:
-                res = expression_resolve_all(expr, scope, constants.resolve)
-            return res
-        return lhs
-
-@builtin_definition
-class ControlThenDefinition(Definition):
-    symbol = 'then'
-    param_names = ['true_branch']
-    property_names = ['integer']
-    @multi_apply
-    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        ival = lhs.force_get_property('integer')
-        if ival.associated_value != 0:
-            from main import expression_resolve_all
-            for expr in body:
-                res = expression_resolve_all(expr, scope, constants.resolve)
-            return res
-        return lhs
-
-@builtin_definition
-class ControlThenElseDefinition(Definition):
-    symbol = 'else'
-    param_names = ['false_branch']
-    property_names = ['integer', 'then']
-    @multi_apply
-    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        ival = lhs.force_get_property('integer')
-        lhs, then_prop = lhs.discard_properties_after('then')
+@register_definition('else', ['integer'], ['false_branch...'])
+def else_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    ival = lhs.force_get_property('integer')
+    if ival.associated_value == 0:
         from main import expression_resolve_all
-        if ival.associated_value == 0:
-            for expr in body:
-                res = expression_resolve_all(expr, scope, constants.resolve)
-            return res
-        else:
-            for expr in then_prop.compound_properties:
-                res = expression_resolve_all(expr, scope, constants.resolve)
-            return res
+        for expr in body:
+            res = expression_resolve_all(expr, scope, constants.resolve)
+        return res
+    return lhs
+
+@register_definition('then', ['integer'], ['true_branch...'])
+def then(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    ival = lhs.force_get_property('integer')
+    if ival.associated_value != 0:
+        from main import expression_resolve_all
+        for expr in body:
+            res = expression_resolve_all(expr, scope, constants.resolve)
+        return res
+    return lhs
+
+@register_definition('else', ['integer', 'then'], ['false_branch...'])
+def then_else(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    ival = lhs.force_get_property('integer')
+    then_prop = lhs.force_get_property('then')
+    lhs, _ = lhs.discard_properties_after('then')
+    from main import expression_resolve_all
+    if ival.associated_value == 0:
+        for expr in body:
+            res = expression_resolve_all(expr, scope, constants.resolve)
+        return res
+    else:
+        for expr in then_prop.compound_properties:
+            res = expression_resolve_all(expr, scope, constants.resolve)
+        return res
 
 # Misc.
 
-@builtin_definition
-class DeclareDefinition(Definition):
-    symbol = 'declare'
-    property_names = ['identifier']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        scope.local_vars[lhs.symbol.s] = Expression(lhs.symbol, [
-            p.copy() for p in lhs.properties if p.property != 'identifier'
-        ])
-        return lhs
+@register_definition('declare', ['identifier'])
+def declare(lhs: Expression, scope: Scope) -> Expression:
+    scope.local_vars[lhs.symbol.s] = Expression(lhs.symbol, [
+        p.copy() for p in lhs.properties if p.property != 'identifier'
+    ])
+    return lhs
     
-@builtin_definition
-class DefinitionDefinition(Definition):
-    symbol = 'definition'
-    param_names = ['body']
-    @multi_apply
-    def apply(self, lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        lhs = lhs.discard_property('identifier')
-        p = lhs.properties.pop()
-        p.compound_properties = [e.discard_property('identifier') for e in p.compound_properties]
+@register_definition('definition', [], ['body...'])
+def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    lhs = lhs.discard_property('identifier')
+    p = lhs.properties.pop()
+    p.compound_properties = [e.discard_property('identifier') for e in p.compound_properties]
 
-        # add to definitions
-        from main import UserDefinedDefinition
-        scope.local_defns.setdefault(p.property.s, []).append(
-            UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
-                       p.is_compound, p.compound_properties, body, scope)
-        )
-        return Expression(p.property, [
-            Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
-        ])
+    # add to definitions
+    from main import UserDefinedDefinition
+    scope.local_defns.setdefault(p.property.s, []).append(
+        UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
+                   p.is_compound, p.compound_properties, body, scope)
+    )
+    return Expression(p.property, [
+        Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
+    ])
     
-@builtin_definition
-class DoDefinition(Definition):
-    symbol = 'do'
-    param_names = ['body']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        return lhs
-    
-@builtin_definition
-class FieldGetDefinition(Definition):
-    symbol = 'field_get'
-    param_names = ['field_name_symbol']
-    property_names = ['structure']
-    @binary_apply
-    def apply(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-        val = lhs.try_get_property('structure')
-        assert val is not None
-        field = rhs.symbol
-        if field not in val.associated_value:
-            raise CompileError(f"{lhs} has no field {rhs}")
-        return val.associated_value[field]
+@register_definition('do', [], ['body...'])
+def do(lhs: Expression) -> Expression:
+    return lhs
 
-@builtin_definition
-class FieldSetDefinition(Definition):
-    symbol = 'field_set'
-    param_names = ['field']
-    property_names = ['structure']
-    @multi_apply
-    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
-        val = lhs.try_get_property('structure')
-        assert val is not None
-        # Just in case it is None-value
-        if not val.is_association:
-            val.is_association = True
-            val.associated_value = {}
-        for expr in rhs:
-            val.associated_value[expr.symbol] = expr
-        return lhs
+@register_definition('identifier')
+def identifier(lhs: Expression, scope: Scope) -> Expression:
+    if (val := scope.var_lookup(lhs.symbol.s)) is None:
+        raise CompileError(f"unable to resolve identifier {lhs}", anchor=lhs.symbol)
+    return val.copy()
 
-@builtin_definition
-class IdentifierDefinition(Definition):
-    symbol = 'identifier'
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        if (val := scope.var_lookup(lhs.symbol.s)) is None:
-            raise CompileError(f"unable to resolve identifier {lhs}", anchor=lhs.symbol)
-        return val.copy()
+# Imports
     
 def find_import_file(path_anchor: str, path: str):
     path_relative = os.path.join(os.path.dirname(path_anchor), path)
@@ -294,24 +234,19 @@ def find_import_file(path_anchor: str, path: str):
         return path_library
     else:
         raise CompileError(f'unable to resolve path {path}')
-    
-@builtin_definition
-class ImportDefinition(Definition):
-    symbol = 'import'
-    property_names = ['string']
-    param_names = ['imported_definitions...']
-    imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to avoid duplicate imports
-    @multi_apply
-    def apply(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+
+imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to avoid duplicate imports
+@register_definition('import', ['string'], ['import_signatures...'])
+def import_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
         path = lhs.force_get_property('string')
         path_str = find_import_file(lhs.symbol.file, path.associated_value)
-        if path_str in ImportDefinition.imported_files:
-            imported_globals = ImportDefinition.imported_files[path_str]
+        if path_str in imported_files:
+            imported_globals = imported_files[path_str]
         else:
             from main import run_file
             imported_globals = run_file(path_str)
-            ImportDefinition.imported_files[path_str] = imported_globals
-        for defn in rhs:
+            imported_files[path_str] = imported_globals
+        for defn in body:
             if defn.symbol.s in imported_globals.local_vars:
                 scope.local_vars[defn.symbol.s] = imported_globals.local_vars[defn.symbol.s]
             elif defn.symbol.s in imported_globals.local_defns:
@@ -325,33 +260,28 @@ class ImportedSharedDefinition(Definition):
         # TODO somehow check the number of arguments of the function
         super().__init__(name, [], is_compound, [], [])
         self.func = func
-    @multi_apply
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @define_apply
+    def apply(self, lhs: Expression, args: list[Expression]) -> Expression:
         self_value = expression_to_associated_value(lhs)
         arg_values = [expression_to_associated_value(arg) for arg in args]
         res = self.func(self_value, *arg_values)
         return associated_value_to_expression(lhs.symbol, res)
-    
-@builtin_definition
-class ImportSharedDefinition(Definition):
-    symbol = 'import'
-    property_names = ['string', 'shared']
-    param_names = ['definitions...']
-    @multi_apply
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        path = lhs.try_get_property('string')
-        assert path is not None
-        # Import the shared library file
-        path_str = os.path.abspath(find_import_file(lhs.symbol.file, path.associated_value))
-        import ctypes
-        lib = ctypes.CDLL(path_str)
-        ## TODO signature definition
-        for definition in args:
-            symbol_name = definition.symbol.s
-            defn_list = scope.local_defns.setdefault(symbol_name, [])
-            defn_list.append(ImportedSharedDefinition(symbol_name, True, lib[symbol_name], path_str))
-            defn_list.append(ImportedSharedDefinition(symbol_name, False, lib[symbol_name], path_str))
-        return lhs
+
+@register_definition('import', ['string', 'shared'], ['import_signatures...'])
+def import_shared(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    path = lhs.try_get_property('string')
+    assert path is not None
+    # Import the shared library file
+    path_str = os.path.abspath(find_import_file(lhs.symbol.file, path.associated_value))
+    import ctypes
+    lib = ctypes.CDLL(path_str)
+    ## TODO signature definition
+    for definition in body:
+        symbol_name = definition.symbol.s
+        defn_list = scope.local_defns.setdefault(symbol_name, [])
+        defn_list.append(ImportedSharedDefinition(symbol_name, True, lib[symbol_name], path_str))
+        defn_list.append(ImportedSharedDefinition(symbol_name, False, lib[symbol_name], path_str))
+    return lhs
 
 class ImportedPythonDefinition(Definition):
     def __init__(self, func: Callable, source_file: str):
@@ -365,8 +295,8 @@ class ImportedPythonDefinition(Definition):
         super().__init__(symbol, [], 
                          len(param_names) > 0, [Expression(token(s), []) for s in param_names], [])
         self.func = func
-    @multi_apply
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    @define_apply
+    def apply(self, lhs: Expression, args: list[Expression]) -> Expression:
         self_value = expression_to_associated_value(lhs)
         arg_values = [expression_to_associated_value(arg) for arg in args]
         res = self.func(self_value, *arg_values)
@@ -396,59 +326,43 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
     return res
         
 
-@builtin_definition
-class ImportRawPythonDefinition(Definition):
-    symbol = 'import'
-    property_names = ['string', 'python']
-    param_names = ['definitions...']
-    # We need to name which Python variables/functions to import.
-    # Functions are imported as `foo(bar, baz) == bar foo(baz)` and no type safety
-    @multi_apply
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        path = lhs.try_get_property('string')
-        assert path is not None
-        # Load in the python file by executing it in an empty global scope,
-        # then we will copy over the specified variables/functions into `scope`.
-        imports = [defn.symbol.s for defn in args]
-        import_raw_python_file(lhs.symbol.file, path.associated_value, imports, scope)
-        return lhs
+@register_definition('import', ['string', 'python'], ['import_signatures...'])
+def import_python(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    path = lhs.force_get_property('string')
+    # Load in the python file
+    import_raw_python_file(lhs.symbol.file, path.associated_value, [defn.symbol.s for defn in body], scope)
+    return lhs
 
-@builtin_definition
-class ImportPythonDefinition(Definition):
-    symbol = 'import'
-    property_names = ['string', 'python', 'definition']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        path = lhs.try_get_property('string')
-        assert path is not None
-        # Load in the python file
-        ImportPythonDefinition.import_module(lhs.symbol.file, path.associated_value)
-        return lhs
+past_imports = {}
+def import_module(path_anchor: str, path_str: str):
+    import importlib.util
+    path_str = find_import_file(path_anchor, path_str)
+    # Get string from path_str
+    module_name = os.path.splitext(os.path.basename(path_str))[0]
 
-    past_imports = {}
-    @classmethod
-    def import_module(cls, path_anchor: str, path_str: str):
-        import importlib.util
-        path_str = find_import_file(path_anchor, path_str)
-        # Get string from path_str
-        module_name = os.path.splitext(os.path.basename(path_str))[0]
+    spec = importlib.util.spec_from_file_location(module_name, path_str)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
 
-        spec = importlib.util.spec_from_file_location(module_name, path_str)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
+    # Check if we have already imported this module to avoid duplicates
+    if module_name in past_imports: return past_imports[module_name]
+    else: past_imports[module_name] = module
 
-        # Check if we have already imported this module to avoid duplicates
-        if module_name in cls.past_imports: return cls.past_imports[module_name]
-        else: cls.past_imports[module_name] = module
+    sys.modules[module_name] = module
+    # for convenience, we also allow access to the global definitions dict
+    setattr(module, 'global_definitions', global_definitions)
+    # and some of the modules
+    setattr(module, 'constants', constants)
+    setattr(module, 'definitions', sys.modules[__name__])
+    spec.loader.exec_module(module)
+    return module
 
-        sys.modules[module_name] = module
-        # for convenience, we also allow access to the global definitions dict
-        setattr(module, 'global_definitions', global_definitions)
-        # and some of the modules
-        setattr(module, 'constants', constants)
-        setattr(module, 'definitions', sys.modules[__name__])
-        spec.loader.exec_module(module)
-        return module
+@register_definition('import', ['string', 'python', 'definition'], ['import_signatures...'])
+def import_python_definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    path = lhs.force_get_property('string')
+    # Load in the python file
+    import_module(lhs.symbol.file, path.associated_value)
+    return lhs
     
 # List operators
 
@@ -461,40 +375,26 @@ def create_list(anchor: Token, value: list[Expression]) -> Expression:
 
 # Logical operators
 
-@builtin_definition
-class LogicalNotDefinition(Definition):
-    symbol = 'logical_not'
-    property_names = ['integer']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        ival = lhs.force_get_property('integer')
-        updated_ival = ival.copy()
-        updated_ival.is_association = True
-        updated_ival.associated_value = not updated_ival.associated_value
-        return lhs.replace_property('integer', updated_ival)
-    
-@builtin_definition
-class PropertiesDefinition(Definition):
-    symbol = 'properties'
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        res_list = []
-        for p in lhs.properties:
-            res_list.append(Expression(p.property, [
-                Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
-            ]))
-        return create_list(lhs.symbol, res_list)
+@register_definition('logical_not', ['integer'])
+def logical_not(lhs: Expression) -> Expression:
+    ival = lhs.force_get_property('integer')
+    updated_ival = ival.copy()
+    updated_ival.is_association = True
+    updated_ival.associated_value = not updated_ival.associated_value
+    return lhs.replace_property('integer', updated_ival)
+
+@register_definition('properties')
+def properties(lhs: Expression) -> Expression:
+    res_list = []
+    for p in lhs.properties:
+        res_list.append(Expression(p.property, [
+            Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
+        ]))
+    return create_list(lhs.symbol, res_list)
 
 # Types - these are idempotent
 
-@builtin_definition
-class IntegerDefinition(Definition):
-    symbol = 'integer'
-    @idempotent_apply
-    def apply(self): pass
-    
-@builtin_definition
-class StringDefinition(Definition):
-    symbol = 'string'
-    @idempotent_apply
-    def apply(self): pass
+@register_definition('integer')
+@register_definition('string')
+def idempotent(lhs: Expression, prop: Property) -> Expression:
+    return lhs.create_with_property(prop)

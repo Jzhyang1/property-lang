@@ -88,10 +88,10 @@ class Expression:
     def replace_property(self, to_replace: str, new_property: Property) -> 'Expression':
         '''
         removes any previous properties with the same name as to_replace, then
-        appends new_property to the properties list
+        prepends new_property to the properties list
         '''
         new_expr = Expression(self.symbol, [property for property in self.properties if property.property != to_replace])
-        new_expr.properties.append(new_property)
+        new_expr.properties.insert(0, new_property)
         return new_expr
     def discard_properties_after(self, prop_str: str) -> tuple['Expression', Property]:
         '''
@@ -135,6 +135,7 @@ class Expression:
         return Expression(self.symbol, properties[:i+1]), properties[i+1:]
 
 class Definition:
+    trace_stack: list[tuple[Expression, list[Expression], 'Scope', Property]] = []
     def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
                  body: list[Expression], scope: 'Scope|None' = None):
         self.prop_symb = prop_symb
@@ -151,6 +152,17 @@ class Definition:
         raise NotImplementedError()
     def __repr__(self):
         return str(self.prop_symb) + ':' + str(self.properties)
+
+class LambdaDefinition(Definition):
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
+                 body: list[Expression], apply_callable: Callable, scope: 'Scope|None' = None):
+        super().__init__(prop_symb, properties, is_compound, params, body, scope)
+        self.apply_callable = apply_callable
+    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
+        self.trace_stack.append((expr, args, scope, prop))
+        res = self.apply_callable(self, expr, args, scope, prop)
+        self.trace_stack.pop()
+        return res
 
 # Scoping
 class Scope:

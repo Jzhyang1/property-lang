@@ -7,7 +7,7 @@ import llvmlite.binding as llvm
 if not '__LANG__' in globals():
     from constants import Definition, Scope, Expression, Property, Token
     import constants
-    from definitions import builtin_definition, unary_apply, binary_apply, CompileError, expression_to_associated_value
+    from definitions import register_definition, define_apply, CompileError, expression_to_associated_value
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -15,23 +15,28 @@ llvm.initialize_native_asmprinter()
 CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__', '__TYPE_MAP__']
 CompileConstructType = ir.Module | ir.IRBuilder | str | dict[str, Any]
 
+# compiled_result: generated values for compilation
+# compile: property that triggers the compilation resolution over regular resolution
+
 def get_compile_construct(scope: Scope, name: CompileConstruct) -> Any: # CompileConstructType
     module_expr = scope.force_var_lookup(name)
-    module_compile_prop = module_expr.force_get_property('compile')
+    module_compile_prop = module_expr.force_get_property('compiled_result')
     return module_compile_prop.associated_value
 
 def set_compile_construct(anchor: Token, scope: Scope, name: CompileConstruct, value: CompileConstructType):
     scope.local_vars[name] = Expression(
         symbol=anchor.create_renamed(name),
-        properties=[Property(anchor.create_renamed('compile'), is_association=True, associated_value=value)]
+        properties=[Property(anchor.create_renamed('compiled_result'), is_association=True, associated_value=value)]
     )
 
-def compile_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
-    from main import resolve_property_on
+def _compile_last_property(expr: Expression, scope: Scope, additional_compound: list[Expression]) -> Expression:
+    from main import resolve_last_property
     prop = expr.properties[-1]
     if prop.start_char != '{':
         prop.compound_properties = [expression_compile_all(local_expr, scope) for local_expr in prop.compound_properties]
-    compiled_expr = resolve_property_on(expr, Property(expr.symbol.create_renamed('compile')), scope, additional_compound)
+
+    # There will be a 'compile' property inserted by expression_compile_all, so we resolve directly
+    compiled_expr = resolve_last_property(expr, scope, additional_compound)
     return compiled_expr
 
 def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
@@ -39,30 +44,32 @@ def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
     Compiles all properties marked for resolution in expr.
     '''
     from main import expression_resolve_all
-    expr_copy = Expression(expr.symbol, [])
+    expr_copy = Expression(expr.symbol, [Property(expr.symbol.create_renamed('compile'))])
     for prop in expr.properties:
         if prop.is_compound:
             prop = prop.copy()
             prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
 
         if prop.property.s in constants.resolve:
-            expr_copy = compile_last_property(expr_copy, scope, prop.compound_properties)
-            expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
-            assert not any(p.property.s in constants.resolve for p in expr_copy.properties)
+            new_expr_copy = _compile_last_property(expr_copy, scope, prop.compound_properties)
+            if not any(p.property.s == 'compile' for p in new_expr_copy.properties):
+                raise CompileError(f"Expected 'compile' property after compilation, got '{new_expr_copy.properties}'", anchor=expr_copy.symbol)
+            assert not any(p.property.s in constants.resolve for p in new_expr_copy.properties)
+            expr_copy = new_expr_copy
         else:
             expr_copy.properties.append(prop)
     return expr_copy
 
 
 def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
-    compile_prop = expr.try_get_property('compile')
+    compile_prop = expr.try_get_property('compiled_result')
     if compile_prop is None:
         # There are a few literal special cases that we want to compile without resolve
         # These are integers and strings
         if (int_prop := expr.try_get_property('integer')) is not None:
             return ir.Constant(ir.IntType(64), int_prop.associated_value or 0)
         elif (str_prop := expr.try_get_property('string')) is not None:
-            return CompileStringDefinition.create_string(str_prop.associated_value, scope)
+            return _create_string(str_prop.associated_value, scope)
         raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
 
@@ -75,30 +82,20 @@ def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
 
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
-    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool):
-        assert properties[-1].property.s == prop_symb
-        self.prop_symb = prop_symb
-        self.properties = properties
-        self.is_compound = is_compound
-        # self.params = []
-        # self.body = []
-
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        call_prop = lhs.force_get_property(self.prop_symb)
-
+    @define_apply
+    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         # make a call to the function
         builder = get_compile_construct(scope, '__BUILDER__')
         arg_vals = [get_compiled(lhs, scope)]
-        for prop in call_prop.compound_properties:
+        for prop in args:
             arg_expr = expression_compile_all(prop, scope)
             arg_val = get_compiled(arg_expr, scope)
             arg_vals.append(arg_val)
         module = get_compile_construct(scope, '__MODULE__')
         llvm_func = module.get_global(self.prop_symb)
         call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=call_res)
-        return lhs.replace_property('compile', compile_prop)
+        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=call_res)
+        return lhs.replace_property('compiled_result', compile_prop)
     
 
 class CompiledInterpretableUserDefinition(Definition):
@@ -124,403 +121,294 @@ class CompiledInterpretableUserDefinition(Definition):
         res = self.llvm_jit_func.get_function_address(self.llvm_func.name)
         from ctypes import CFUNCTYPE, c_int64
         cfunc = CFUNCTYPE(c_int64, *[c_int64 for _ in arg_vals]) (res)
-        return Expression(symbol=expr.symbol, properties=[Property(expr.symbol.create_renamed('compile'), is_association=True, associated_value=cfunc(*arg_vals))])
+        return Expression(symbol=expr.symbol, properties=[Property(expr.symbol.create_renamed('compiled_result'), is_association=True, associated_value=cfunc(*arg_vals))])
 
-
-# Utility
-
-@builtin_definition
-class CompileCompileDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['compile']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        return lhs
 
 # Builtin types
 
-@builtin_definition
-class CompileIntegerDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['integer']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        ival = lhs.force_get_property('integer')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True)
-        compile_prop.associated_value = ir.Constant(ir.IntType(64), ival.associated_value or 0)
-        return lhs.create_with_property(compile_prop)
+@register_definition('integer', ['compile'])
+def compile_integer(lhs: Expression, prop: Property) -> Expression:
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True)
+    compile_prop.associated_value = ir.Constant(ir.IntType(64), prop.associated_value or 0)
+    return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
+
+compiled_string_cache: dict[tuple[str, str], ir.Value] = {}
+def _create_string(str_val: str, scope: Scope) -> ir.Value:
+    builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
+    file_str = get_compile_construct(scope, '__IMPORT_PATH__')
+    cache_key = (file_str, str_val)
+    if cache_key in compiled_string_cache:
+        return compiled_string_cache[cache_key]
     
-@builtin_definition
-class CompileStringDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['string']
-    # We map each (__IMPORT_PATH__, string) pair to the compiled result of the string, so that we can reuse the compiled result if the same string is compiled again in the same file
-    compiled_cache: dict[tuple[str, str], ir.Value] = {}
+    ty = ir.ArrayType(ir.IntType(8), len(str_val) + 1)
+    shared_str = ir.GlobalVariable(
+        get_compile_construct(scope, '__MODULE__'), 
+        ty, name=f'str_{len(compiled_string_cache)}'
+    )
+    shared_str.linkage = 'internal'
+    shared_str.global_constant = True
+    shared_str.initializer = ir.Constant(ty, bytearray((str_val + '\0').encode("utf8"))) # type: ignore
+    value: ir.Value = builder.bitcast(shared_str, ir.PointerType(ir.IntType(8))) # type: ignore
+    compiled_string_cache[cache_key] = value
+    return value
 
-    @classmethod
-    def create_string(cls, str_val: str, scope: Scope) -> ir.Value:
-        builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
-        file_str = get_compile_construct(scope, '__IMPORT_PATH__')
-        cache_key = (file_str, str_val)
-        if cache_key in CompileStringDefinition.compiled_cache:
-            return CompileStringDefinition.compiled_cache[cache_key]
-        
-        shared_str = ir.GlobalVariable(
-            get_compile_construct(scope, '__MODULE__'), 
-            ir.ArrayType(ir.IntType(8), len(str_val) + 1), 
-            name=f'str_{len(CompileStringDefinition.compiled_cache)}'
-        )
-        shared_str.linkage = 'internal'
-        shared_str.global_constant = True
-        shared_str.initializer = ir.Constant(ir.ArrayType(ir.IntType(8), len(str_val) + 1), bytearray((str_val + '\0').encode("utf8"))) # type: ignore
-        CompileStringDefinition.compiled_cache[cache_key] = shared_str
-        return builder.bitcast(shared_str, ir.PointerType(ir.IntType(8))) # type: ignore
-
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        shared_str = CompileStringDefinition.create_string(lhs.force_get_property('string').associated_value, scope)
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=shared_str)
-        return lhs.create_with_property(compile_prop)
+@register_definition('string', ['compile'])
+def compile_string(lhs: Expression, scope: Scope, prop: Property) -> Expression:
+    shared_str = _create_string(prop.associated_value, scope)
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=shared_str)
+    return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
 
 # Operations on built-in types
-
-class CompileBuiltinBinaryDefinition(Definition):
-    symbol = 'compile'
-    property_names: list[str]  # defined in subclasses, the last property name is the operator
-    op_name: str    # the callback that generates the IR for this operation
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        property_name = self.property_names[-1]
-        lhs, prop = lhs.discard_properties_after(property_name)
-        builder = get_compile_construct(scope, '__BUILDER__')
+def builtin_binary_op(op_symbol: str, op_name: str):
+    def wrapper(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
         lhs_val = get_compiled(lhs, scope)
-        if len(prop.compound_properties) == 0:
-            raise CompileError(f"property {property_name} requires an argument, got none")
-        for p in prop.compound_properties:
-            rhs_expr = expression_compile_all(p, scope)
-        rhs_val = get_compiled(rhs_expr, scope)
-        res = getattr(builder, self.op_name)(lhs_val, rhs_val, f'{self.op_name}_tmp')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
-        return lhs.replace_property('compile', compile_prop)
-
-class CompileBuiltinCompareDefinition(CompileBuiltinBinaryDefinition):
-    cmp_type: str  # defined in subclasses, e.g. '==', '<', etc.
-    def callback(self, builder: ir.IRBuilder, lhs_val: ir.Value, rhs_val: ir.Value, property_name: str) -> Any:
-        cmp_res = builder.icmp_signed(self.cmp_type, lhs_val, rhs_val, property_name)
-        ires = builder.zext(cmp_res, ir.IntType(64), property_name)
-        return ires
-
-@builtin_definition
-class CompileIntegerAddDefinition(CompileBuiltinBinaryDefinition):
-    property_names = ['integer', '+']
-    op_name = "add"
-
-@builtin_definition
-class CompileIntegerSubtractDefinition(CompileBuiltinBinaryDefinition):
-    property_names = ['integer', '-']
-    op_name = "sub"
-
-@builtin_definition
-class CompileIntegerMultiplyDefinition(CompileBuiltinBinaryDefinition):
-    property_names = ['integer', '*']
-    op_name = "mul"
-
-@builtin_definition
-class CompileIntegerDivideDefinition(CompileBuiltinBinaryDefinition):
-    property_names = ['integer', '/']
-    op_name = "sdiv"
-
-@builtin_definition
-class CompileIntegerEqualDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '==']
-    cmp_type = '=='
-
-@builtin_definition
-class CompileIntegerNotEqualDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '!=']
-    cmp_type = '!='
-
-@builtin_definition
-class CompileIntegerLessThanDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '<']
-    cmp_type = '<'
-
-@builtin_definition
-class CompileIntegerGreaterThanDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '>']
-    cmp_type = '>'
-
-@builtin_definition
-class CompileIntegerLessEqualDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '<=']
-    cmp_type = '<='
-
-@builtin_definition
-class CompileIntegerGreaterEqualDefinition(CompileBuiltinCompareDefinition):
-    property_names = ['integer', '>=']
-    cmp_type = '>='
-
-@builtin_definition
-class CompileIntegerLogicalNotDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['integer', 'logical_not']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, _ = lhs.discard_properties_after('logical_not')
+        rhs_val = get_compiled(rhs, scope)
         builder = get_compile_construct(scope, '__BUILDER__')
+        res = getattr(builder, op_name)(lhs_val, rhs_val, f'{op_name}_tmp')
+        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+        return lhs.replace_property('compiled_result', compile_prop)
+    return register_definition(op_symbol, ['compile', 'integer'], ['operand'])(wrapper)
+
+def builtin_compare_binary_op(cmp_type: str):
+    def wrapper(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
         lhs_val = get_compiled(lhs, scope)
-        zero = ir.Constant(ir.IntType(64), 0)
-        cmp_res = builder.icmp_signed('!=', lhs_val, zero, 'logical_not_tmp')
-        ires = builder.zext(cmp_res, ir.IntType(64), 'bool_to_int_tmp')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=ires)
-        return lhs.replace_property('compile', compile_prop)
+        rhs_val = get_compiled(rhs, scope)
+        builder = get_compile_construct(scope, '__BUILDER__')
+        cmp_res = builder.icmp_signed(cmp_type, lhs_val, rhs_val, f'{cmp_type}_tmp')
+        ires = builder.zext(cmp_res, ir.IntType(64), f'{cmp_type}_bool_to_int_tmp')
+        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=ires)
+        return lhs.replace_property('compiled_result', compile_prop)
+    return register_definition(cmp_type, ['compile', 'integer'], ['operand'])(wrapper)
+
+builtin_binary_op('+', 'add')
+builtin_binary_op('-', 'sub')
+builtin_binary_op('*', 'mul')
+builtin_binary_op('/', 'sdiv')
+builtin_compare_binary_op('==')
+builtin_compare_binary_op('!=')
+builtin_compare_binary_op('<')
+builtin_compare_binary_op('>')
+builtin_compare_binary_op('<=')
+builtin_compare_binary_op('>=')
+
+@register_definition('logical_not', ['compile', 'integer'])
+def compile_logical_not(lhs: Expression, scope: Scope) -> Expression:
+    lhs, _ = lhs.discard_properties_after('logical_not')
+    builder = get_compile_construct(scope, '__BUILDER__')
+    lhs_val = get_compiled(lhs, scope)
+    zero = ir.Constant(ir.IntType(64), 0)
+    cmp_res = builder.icmp_signed('!=', lhs_val, zero, 'logical_not_tmp')
+    ires = builder.zext(cmp_res, ir.IntType(64), 'bool_to_int_tmp')
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=ires)
+    return lhs.replace_property('compiled_result', compile_prop)
 
 # Variables
 
-@builtin_definition
-class CompileIdentifierDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['identifier']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        var_expr = scope.var_lookup(lhs.symbol.s)
-        if var_expr is None:
-            raise CompileError(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs.symbol)
+def create_variable(name: str, scope: Scope, base_properties: Expression) -> Expression:
+    # Determine the "type" of the variable from base_properties
+    var_type = get_type(base_properties, scope)
+    if scope.is_global:
+        var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), var_type, name=name)
+        var.linkage = 'internal'
+    else:
         builder = get_compile_construct(scope, '__BUILDER__')
-        var_ptr = get_compiled(var_expr, scope)
-        var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_val)
-        # We want to put the identifier properties before all the var_expr properties
-        res = Expression(lhs.symbol, lhs.properties + var_expr.properties)
-        return res.replace_property('compile', compile_prop)
+        var = builder.alloca(var_type, name=name)
+    anchor = base_properties.symbol
+    compile_prop = Property(anchor.create_renamed('compiled_result'), is_association=True, associated_value=var)
+    res = scope.local_vars[name] = base_properties.replace_property('compiled_result', compile_prop)
+    return res
 
-@builtin_definition
-class CompileDeclareDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['declare']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, declare_prop = lhs.discard_properties_after('declare')
-        return CompileDeclareDefinition.create_variable(lhs.symbol.s, scope, lhs)
+@register_definition('identifier', ['compile'])
+def compile_identifier(lhs: Expression, scope: Scope) -> Expression:
+    var_expr = scope.var_lookup(lhs.symbol.s)
+    if var_expr is None:
+        raise CompileError(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs.symbol)
+    builder = get_compile_construct(scope, '__BUILDER__')
+    var_ptr = get_compiled(var_expr, scope)
+    var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_val)
+    # We want to put the identifier properties before all the var_expr properties
+    res = Expression(lhs.symbol, lhs.properties + var_expr.properties)
+    return res.replace_property('compiled_result', compile_prop)
+
+@register_definition('declare', ['compile'])
+def compile_declare(lhs: Expression, scope: Scope) -> Expression:
+    return create_variable(lhs.symbol.s, scope, lhs)
+
     
-    @classmethod
-    def create_variable(cls, name: str, scope: Scope, base_properties: Expression) -> Expression:
-        # Determine the "type" of the variable from base_properties
-        var_type = get_type(base_properties, scope)
-        if scope.is_global:
-            var = ir.GlobalVariable(get_compile_construct(scope, '__MODULE__'), var_type, name=name)
-            var.linkage = 'internal'
-        else:
-            builder = get_compile_construct(scope, '__BUILDER__')
-            var = builder.alloca(var_type, name=name)
-        anchor = base_properties.symbol
-        compile_prop = Property(anchor.create_renamed('compile'), is_association=True, associated_value=var)
-        res = scope.local_vars[name] = base_properties.replace_property('compile', compile_prop)
-        return res
-    
-@builtin_definition
-class CompileAssignDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['assign']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, assign_prop = lhs.discard_properties_after('assign')
-        if len(assign_prop.compound_properties) != 1:
-            raise CompileError(f"`assign` requires one argument, got {assign_prop.compound_properties}")
-        val_expr = assign_prop.compound_properties[0]
-        val_expr = expression_compile_all(val_expr, scope)  # compile the rhs
-        var_expr = scope.var_lookup(lhs.symbol.s)
-        if var_expr is None:
-            var_expr = CompileDeclareDefinition.create_variable(lhs.symbol.s, scope, val_expr)
-        # TODO move properties of val_expr to var_expr
-        var = get_compiled(var_expr, scope)
-        val = get_compiled(val_expr, scope)
-        builder = get_compile_construct(scope, '__BUILDER__')
-        compile_res = builder.store(val, var)
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=compile_res)
-        return lhs.replace_property('compile', compile_prop)
+@register_definition('assign', ['compile', 'identifier'])
+def compile_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+    val_expr = expression_compile_all(rhs, scope)  # compile the rhs
+    var_expr = scope.var_lookup(lhs.symbol.s)
+    if var_expr is None:
+        var_expr = create_variable(lhs.symbol.s, scope, val_expr)
+    # TODO move properties of val_expr to var_expr
+    var = get_compiled(var_expr, scope)
+    val = get_compiled(val_expr, scope)
+    builder = get_compile_construct(scope, '__BUILDER__')
+    compile_res = builder.store(val, var)
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=compile_res)
+    return lhs.replace_property('compiled_result', compile_prop)
 
 # Conditionals
 
-@builtin_definition
-class CompileThenDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['then']   # This is only the 'then' block, there will be no else following
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        cond_expr, body_prop = lhs.discard_properties_after('then')
-        cond_val = get_compiled(cond_expr, scope)
-        builder = get_compile_construct(scope, '__BUILDER__')
+@register_definition('then', ['compile', 'integer'])
+def compile_then(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    cond_val = get_compiled(lhs, scope)
+    builder = get_compile_construct(scope, '__BUILDER__')
 
-        # 1. Branch: if cond != 0 goto then_block else goto merge_block
-        entry_block = builder.block
-        then_block = builder.append_basic_block('then') # This gets redefined later
-        merge_block = builder.append_basic_block('ifcont')
-        builder.cbranch(
-            builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
-            then_block, merge_block
+    # 1. Branch: if cond != 0 goto then_block else goto merge_block
+    entry_block = builder.block
+    then_block = builder.append_basic_block('then') # This gets redefined later
+    merge_block = builder.append_basic_block('ifcont')
+    builder.cbranch(
+        builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
+        then_block, merge_block
+    )
+
+    # 2. Emit "Then" Block
+    builder.position_at_start(then_block)
+    if len(body) == 0:
+        raise CompileError('`then` block cannot be empty')
+    for expr in body:
+        body_expr = expression_compile_all(expr, scope)
+    body_val = get_compiled(body_expr, scope)
+    builder.branch(merge_block) # go back to the main flow
+    # Update then_block reference in case get_compiled created new blocks
+    then_block = builder.block
+
+    # 3. Emit Merge Block and PHI
+    builder.position_at_start(merge_block)
+    phi = builder.phi(ir.IntType(64), 'iftmp')
+    phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the 0 (cond_val)
+    phi.add_incoming(body_val, then_block)  # If we came from then_block, result is the body_val
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=phi)
+    return lhs.replace_property('compiled_result', compile_prop)
+
+@register_definition('else', ['compile', 'integer'])
+def compile_else(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    cond_val = get_compiled(lhs, scope)
+    builder = get_compile_construct(scope, '__BUILDER__')
+    # 1. Branch: if cond != 0 goto then_block else goto merge_block
+    entry_block = builder.block
+    else_block = builder.append_basic_block('else') # This gets redefined later
+    merge_block = builder.append_basic_block('ifcont')
+    builder.cbranch(
+        builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
+        merge_block, else_block, 
+    )
+
+    # 2. Emit "Else" Block
+    builder.position_at_start(else_block)
+    if len(body) == 0:
+        raise CompileError('`else` block cannot be empty')
+    for expr in body:
+        body_expr = expression_compile_all(expr, scope)
+    body_val = get_compiled(body_expr, scope)
+    builder.branch(merge_block) # go back to the main flow
+    # Update else_block reference in case get_compiled created new blocks
+    else_block = builder.block
+
+    # 3. Emit Merge Block and PHI
+    builder.position_at_start(merge_block)
+    phi = builder.phi(ir.IntType(64), 'iftmp')
+    phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the cond_val
+    phi.add_incoming(body_val, else_block)  # If we came from else_block, result is the body_val
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=phi)
+    return lhs.replace_property('compiled_result', compile_prop)
+
+@register_definition('else', ['compile', 'integer', 'then'])
+def compile_then_else(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    cond_expr, then_body_prop = lhs.discard_properties_after('then')
+    then_body = then_body_prop.compound_properties
+    else_body = body
+
+    cond_val = get_compiled(cond_expr, scope)
+    builder = get_compile_construct(scope, '__BUILDER__')
+    # 1. Branch: if cond != 0 goto then_block else goto merge_block
+    entry_block = builder.block
+    then_block = builder.append_basic_block('then')
+    else_block = builder.append_basic_block('else')
+    merge_block = builder.append_basic_block('ifcont')
+    builder.cbranch(
+        builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
+        then_block, else_block, 
+    )
+
+    # 2. Emit "Then" and "Else" Blocks
+    builder.position_at_start(then_block)
+    if len(then_body) == 0:
+        raise CompileError('`then` block cannot be empty')
+    for expr in then_body:
+        then_expr = expression_compile_all(expr, scope)
+    then_val = get_compiled(then_expr, scope)
+    builder.branch(merge_block) # go back to the main flow
+    then_block = builder.block  # Update then_block reference in case get_compiled created new blocks
+
+    builder.position_at_start(else_block)
+    if len(else_body) == 0:
+        raise CompileError('`else` block cannot be empty')
+    for expr in else_body:
+        else_expr = expression_compile_all(expr, scope)
+    else_val = get_compiled(else_expr, scope)
+    builder.branch(merge_block) # go back to the main flow
+    else_block = builder.block  # Update else_block reference in case get_compiled created new blocks
+
+    # 3. Emit Merge Block and PHI
+    builder.position_at_start(merge_block)
+    phi = builder.phi(ir.IntType(64), 'iftmp')
+    phi.add_incoming(then_val, then_block)  # If we came from then_block, result is the then_val
+    phi.add_incoming(else_val, else_block)  # If we came from else_block, result is the body_val
+    compile_prop = Property(cond_expr.symbol.create_renamed('compiled_result'), is_association=True, associated_value=phi)
+    return cond_expr.replace_property('compiled_result', compile_prop)
+
+@register_definition('do', ['compile'])
+def compile_do(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    for expr in body:
+        expression_compile_all(expr, scope)
+    ret_val = get_compiled(lhs, scope)
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=ret_val)
+    return lhs.replace_property('compiled_result', compile_prop)
+
+@register_definition('definition', ['compile'], ['body...'])
+def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    # The function property is the last property in lhs
+    # TODO name mangling to allow multiple functions with the same name but different signatures
+    # The parameters are the lhs symbol and the symbols in the compound properties of the last property in the lhs
+    *props, func_prop = lhs.properties
+    func_name = func_prop.property.s
+    # TODO types for parameters and return value
+    params = [lhs] + func_prop.compound_properties
+    params = [param.discard_property('identifier') for param in params]
+    param_names = [param.symbol.s for param in params]
+    param_types = [get_type(param, scope) for param in params]
+
+    defn = CompiledUserDefinition(func_name, props, is_compound=True, params=params, body=[], scope=scope)
+    # TODO return a non-integer type
+    func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), param_types), name=func_name)
+    block = func.append_basic_block(name=func_name)
+    scope.local_defns.setdefault(func_name, []).append(defn)
+
+    compile_scope = Scope(parent_scope=scope)
+    builder = ir.IRBuilder(block)
+    set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
+    # Populate parameters
+    for param_name, param in zip(param_names, func.args):
+        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=param)
+        compile_scope.local_vars[param_name] = Expression(
+            symbol=lhs.symbol.create_renamed(param_name),
+            properties=[compile_prop]
         )
 
-        # 2. Emit "Then" Block
-        builder.position_at_start(then_block)
-        if len(body_prop.compound_properties) == 0:
-            raise CompileError('`then` block cannot be empty')
-        for expr in body_prop.compound_properties:
-            body_expr = expression_compile_all(expr, scope)
-        body_val = get_compiled(body_expr, scope)
-        builder.branch(merge_block) # go back to the main flow
-        # Update then_block reference in case get_compiled created new blocks
-        then_block = builder.block
+    for expr in body:
+        res_expr = expression_compile_all(expr, compile_scope)
+    res = get_compiled(res_expr, compile_scope)
+    builder.ret(res)
 
-        # 3. Emit Merge Block and PHI
-        builder.position_at_start(merge_block)
-        phi = builder.phi(ir.IntType(64), 'iftmp')
-        phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the 0 (cond_val)
-        phi.add_incoming(body_val, then_block)  # If we came from then_block, result is the body_val
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
-        return lhs.replace_property('compile', compile_prop)
-
-@builtin_definition
-class CompileElseDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['else']   # This is only the 'else' block, there is no then block before this
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        cond_expr, body_prop = lhs.discard_properties_after('else')
-        cond_val = get_compiled(cond_expr, scope)
-        builder = get_compile_construct(scope, '__BUILDER__')
-        # 1. Branch: if cond != 0 goto then_block else goto merge_block
-        entry_block = builder.block
-        else_block = builder.append_basic_block('else') # This gets redefined later
-        merge_block = builder.append_basic_block('ifcont')
-        builder.cbranch(
-            builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
-            merge_block, else_block, 
-        )
-
-        # 2. Emit "Else" Block
-        builder.position_at_start(else_block)
-        if len(body_prop.compound_properties) == 0:
-            raise CompileError('`else` block cannot be empty')
-        for expr in body_prop.compound_properties:
-            body_expr = expression_compile_all(expr, scope)
-        body_val = get_compiled(body_expr, scope)
-        builder.branch(merge_block) # go back to the main flow
-        # Update else_block reference in case get_compiled created new blocks
-        else_block = builder.block
-
-        # 3. Emit Merge Block and PHI
-        builder.position_at_start(merge_block)
-        phi = builder.phi(ir.IntType(64), 'iftmp')
-        phi.add_incoming(cond_val, entry_block) # If we came from entry, result is the cond_val
-        phi.add_incoming(body_val, else_block)  # If we came from else_block, result is the body_val
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
-        return lhs.replace_property('compile', compile_prop)
-
-@builtin_definition
-class CompileThenElseDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['then', 'else']   # This is the 'x then(a) else(b)' block
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, else_body_prop = lhs.discard_properties_after('else')
-        cond_expr, then_body_prop = lhs.discard_properties_after('then')
-
-        cond_val = get_compiled(cond_expr, scope)
-        builder = get_compile_construct(scope, '__BUILDER__')
-        # 1. Branch: if cond != 0 goto then_block else goto merge_block
-        entry_block = builder.block
-        then_block = builder.append_basic_block('then')
-        else_block = builder.append_basic_block('else')
-        merge_block = builder.append_basic_block('ifcont')
-        builder.cbranch(
-            builder.icmp_signed('!=', cond_val, ir.Constant(ir.IntType(64), 0), 'ifcond'), 
-            then_block, else_block, 
-        )
-
-        # 2. Emit "Then" and "Else" Blocks
-        builder.position_at_start(then_block)
-        if len(then_body_prop.compound_properties) == 0:
-            raise CompileError('`then` block cannot be empty')
-        for expr in then_body_prop.compound_properties:
-            then_expr = expression_compile_all(expr, scope)
-        then_val = get_compiled(then_expr, scope)
-        builder.branch(merge_block) # go back to the main flow
-        then_block = builder.block  # Update then_block reference in case get_compiled created new blocks
-
-        builder.position_at_start(else_block)
-        if len(else_body_prop.compound_properties) == 0:
-            raise CompileError('`else` block cannot be empty')
-        for expr in else_body_prop.compound_properties:
-            else_expr = expression_compile_all(expr, scope)
-        else_val = get_compiled(else_expr, scope)
-        builder.branch(merge_block) # go back to the main flow
-        else_block = builder.block  # Update else_block reference in case get_compiled created new blocks
-
-        # 3. Emit Merge Block and PHI
-        builder.position_at_start(merge_block)
-        phi = builder.phi(ir.IntType(64), 'iftmp')
-        phi.add_incoming(then_val, then_block)  # If we came from then_block, result is the then_val
-        phi.add_incoming(else_val, else_block)  # If we came from else_block, result is the body_val
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=phi)
-        return lhs.replace_property('compile', compile_prop)
-
-@builtin_definition
-class CompileDoDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['do']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, body_prop = lhs.discard_properties_after('do')
-        for expr in body_prop.compound_properties:
-            expression_compile_all(expr, scope)
-        res = get_compiled(lhs, scope)
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=res)
-        return lhs.replace_property('compile', compile_prop)
-
-@builtin_definition
-class CompileDefinitionDefinition(Definition):
-    symbol = 'compile'
-    property_names = ['definition']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        lhs, defn_prop = lhs.discard_properties_after('definition')
-        # The function property is the last property in lhs
-        # TODO name mangling to allow multiple functions with the same name but different signatures
-        # The parameters are the lhs symbol and the symbols in the compound properties of the last property in the lhs
-        func_prop = lhs.properties[-1]
-        func_name = func_prop.property.s
-        # TODO types for parameters and return value
-        params = [lhs] + func_prop.compound_properties
-        param_names = [param.symbol.s for param in params]
-        param_types = [get_type(param, scope) for param in params]
-
-        properties = [p for p in lhs.properties if p.property != 'identifier']
-        defn = CompiledUserDefinition(func_name, properties, is_compound=True)
-        # TODO return a non-integer type
-        func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), param_types), name=func_name)
-        block = func.append_basic_block(name=func_name)
-        scope.local_defns.setdefault('compile', []).append(defn)
-
-        compile_scope = Scope(parent_scope=scope)
-        builder = ir.IRBuilder(block)
-        set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
-        # Populate parameters
-        for param_name, param in zip(param_names, func.args):
-            compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=param)
-            compile_scope.local_vars[param_name] = Expression(
-                symbol=lhs.symbol.create_renamed(param_name),
-                properties=[compile_prop]
-            )
-
-        for expr in defn_prop.compound_properties:
-            res_expr = expression_compile_all(expr, compile_scope)
-        res = get_compiled(res_expr, compile_scope)
-        builder.ret(res)
-
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=func)
-        res = lhs.replace_property('compile', compile_prop)
-        return res
+    property_prop = Property(func_prop.property.create_renamed('property'))
+    compile_prop = Property(lhs.symbol.create_renamed('compile'))
+    result_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=func)
+    return Expression(func_prop.property, [result_prop, compile_prop, property_prop])
 
 
 # TODO make the compilation imports/linking more explicit
@@ -570,111 +458,101 @@ def inherit_declarations(dst:ir.Module):
         # TODO Also add declarations for when we later want to link global variables
     return inherited
 
-@builtin_definition
-class ImportCompileDefinition(Definition):
-    symbol = 'import'
-    property_names = ['compile']
-    @binary_apply
-    def apply(self, lhs: Expression, name_expr: Expression, scope: Scope) -> Expression:
-        name = name_expr.symbol.s # We allow for any type
-        module = ir.Module(name)
-        target = llvm.Target.from_default_triple()
-        target_machine = target.create_target_machine()
-        module.triple = target_machine.triple
-        module.data_layout = target_machine.target_data # type: ignore
+@register_definition('import', ['compile'], ['module_name'])
+def compile_import(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+    lhs = lhs.discard_property('compile')   # We treat compile import as one op
+    name = rhs.symbol.s # We name the module as the rhs symbol
+    module = ir.Module(name)
+    target = llvm.Target.from_default_triple()
+    target_machine = target.create_target_machine()
+    module.triple = target_machine.triple
+    module.data_layout = target_machine.target_data # type: ignore
 
-        # TODO cache the compiled results
-        compile_scope = Scope(parent_scope=scope)
-        func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
-        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
-        set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
-        set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
-        set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
-        set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
-            'integer': ir.IntType(64),
-            'string': ir.PointerType(ir.IntType(8)),
-            'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
-        })
+    # TODO cache the compiled results
+    compile_scope = Scope(parent_scope=scope)
+    func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
+    builder = ir.IRBuilder(func.append_basic_block(name="entry"))
+    set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
+    set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
+    set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
+    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
+        # TODO don't do this manually
+        'integer': ir.IntType(64),
+        'string': ir.PointerType(ir.IntType(8)),
+        'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
+    })
 
-        inherited = inherit_declarations(module)
+    inherited = inherit_declarations(module)
+    resolution_property = Property(lhs.symbol.create_renamed('.'))
+    compiled_expr = expression_compile_all(lhs.create_with_property(resolution_property), compile_scope)
+    compiled_val = get_compiled(compiled_expr, compile_scope)
+    builder.ret(compiled_val)
 
-        from main import resolve_last_property
-        compiled_expr = resolve_last_property(lhs, compile_scope, [])
-        compiled_val = get_compiled(compiled_expr, compile_scope)
-        builder.ret(compiled_val)
+    # Output module 
+    imported_modules[name] = _imported_signature(module, inherited)
+    # Export global definitions as well
+    for defn_name, defn in compile_scope.local_defns.items():
+        scope.local_defns.setdefault(defn_name, []).extend(defn)
+    return lhs
 
-        # Output module 
-        imported_modules[name] = _imported_signature(module, inherited)
-        # Export global definitions as well
-        for defn_name, defn in compile_scope.local_defns.items():
-            scope.local_defns.setdefault(defn_name, []).extend(defn)
-        return lhs
+@register_definition('compile_to', [], ['file_dest'])
+def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+    if (path := rhs.try_get_property('string')) is None:
+        raise CompileError(f'compile destination must be a string, got {rhs}')
+    path_str = path.associated_value
+    if not (path_str.endswith('.obj') or path_str.endswith('.out')):
+        raise CompileError(f'compile destination must end with .obj or .out, got {rhs}')
 
-@builtin_definition
-class CompileToDefinition(Definition):
-    symbol = 'compile_to'
-    param_names = 'file_dest'
-    @binary_apply
-    def apply(self, lhs: Expression, file_dest: Expression, scope: Scope) -> Expression:
-        if (path := file_dest.try_get_property('string')) is None:
-            raise CompileError(f'compile destination must be a string, got {file_dest}')
-        path_str = path.associated_value
-        if not (path_str.endswith('.obj') or path_str.endswith('.out')):
-            raise CompileError(f'compile destination must end with .obj or .out, got {file_dest}')
+    module = ir.Module(path_str)
+    target = llvm.Target.from_default_triple()
+    target_machine = target.create_target_machine()
+    module.triple = target_machine.triple
+    module.data_layout = target_machine.target_data # type: ignore
 
-        module = ir.Module(path_str)
-        target = llvm.Target.from_default_triple()
-        target_machine = target.create_target_machine()
-        module.triple = target_machine.triple
-        module.data_layout = target_machine.target_data # type: ignore
+    compile_scope = Scope(parent_scope=scope)
+    func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
+    builder = ir.IRBuilder(func.append_basic_block(name="entry"))
+    set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
+    set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
+    set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
+    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
+        # TODO don't do this manually
+        'integer': ir.IntType(64),
+        'string': ir.PointerType(ir.IntType(8)),
+        'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
+    })
 
-        compile_scope = Scope(parent_scope=scope)
-        func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
-        builder = ir.IRBuilder(func.append_basic_block(name="entry"))
-        set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
-        set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
-        set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
-        set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
-            'integer': ir.IntType(64),
-            'string': ir.PointerType(ir.IntType(8)),
-        })
+    inherited = inherit_declarations(module) # Add type definitions to module
+    resolution_property = Property(lhs.symbol.create_renamed('.'))
+    compiled_expr = expression_compile_all(lhs.create_with_property(resolution_property), compile_scope)
+    compiled_val = get_compiled(compiled_expr, compile_scope)
+    builder.ret(compiled_val)
 
-        inherited = inherit_declarations(module) # Add type definitions to module
+    # Output compiled binary file
+    llvm_ir = str(module)
+    print(llvm_ir)
+    llvm_mod = llvm.parse_assembly(llvm_ir)
+    for module, functions in imported_modules.values():
+        module_ir = str(module)
+        imported_mod = llvm.parse_assembly(module_ir)
+        imported_mod.verify()
+        llvm_mod.link_in(imported_mod)
+    llvm_mod.verify()
 
-        from main import resolve_property_on
-        compiled_expr = resolve_property_on(lhs, Property(lhs.symbol.create_renamed('compile')), compile_scope, [])
-        compiled_val = get_compiled(compiled_expr, compile_scope)
-        builder.ret(compiled_val)
-
-        # Output compiled binary file
-        llvm_ir = str(module)
-        llvm_mod = llvm.parse_assembly(llvm_ir)
-        for module, functions in imported_modules.values():
-            module_ir = str(module)
-            imported_mod = llvm.parse_assembly(module_ir)
-            imported_mod.verify()
-            llvm_mod.link_in(imported_mod)
-        llvm_mod.verify()
-
-        obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
-        with open(obj_path_str, 'wb') as f:
-            f.write(target_machine.emit_object(llvm_mod))
-        if path_str.endswith('.out'):
-            import subprocess
-            import os
-            subprocess.run(['clang', obj_path_str, '-o', path_str])
-            # clean up the object file
-            os.remove(obj_path_str)
-
-        return lhs
+    obj_path_str = path_str.rsplit('.', 1)[0] + '.obj'
+    with open(obj_path_str, 'wb') as f:
+        f.write(target_machine.emit_object(llvm_mod))
+    if path_str.endswith('.out'):
+        import subprocess
+        import os
+        subprocess.run(['clang', obj_path_str, '-o', path_str])
+        # clean up the object file
+        os.remove(obj_path_str)
+    return lhs
     
-@builtin_definition
-class MachineNameDefinition(Definition):
-    symbol = 'machine_name'
-    property_names = ['compile']
-    @unary_apply
-    def apply(self, lhs: Expression, scope: Scope) -> Expression:
-        target = llvm.Target.from_default_triple()
-        machine_name = target.name
-        str_prop = Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=machine_name)
-        return lhs.replace_property('string', str_prop)
+@register_definition('machine_name', ['compile'])
+def compile_machine_name(lhs: Expression) -> Expression:
+     target = llvm.Target.from_default_triple()
+     machine_name = target.name
+     compile_prop = Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=machine_name)
+     return Expression(lhs.symbol, properties=[compile_prop])
