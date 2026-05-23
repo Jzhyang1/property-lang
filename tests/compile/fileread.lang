@@ -1,0 +1,11 @@
+"lib/print.py" python definition import;
+"lib/file.py" python definition import;
+"lib/compile.py" python definition import;
+
+0 do (
+	y assign["tests/fileread.lang" file open];
+	x assign[y.read];
+	x.print;
+
+	y.close;
+) compile_to("rw.out");

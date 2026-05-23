@@ -67,7 +67,7 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
         if (int_prop := expr.try_get_property('integer')) is not None:
             return ir.Constant(ir.IntType(64), int_prop.associated_value or 0)
         elif (str_prop := expr.try_get_property('string')) is not None:
-            return _create_string(str_prop.associated_value, scope)
+            return create_string(str_prop.associated_value, scope)
         raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
 
@@ -76,6 +76,7 @@ def _default_typemap() -> dict[str, ir.Type]:
         'integer': ir.IntType(64),
         'string': ir.PointerType(ir.IntType(8)),
         'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
+        'file': ir.PointerType(ir.IntType(8)), # We will treat files as opaque pointers in the compiled code
     }
 
 def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
@@ -138,7 +139,7 @@ def compile_integer(lhs: Expression, prop: Property) -> Expression:
     return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
 
 compiled_string_cache: dict[tuple[str, str], ir.Value] = {}
-def _create_string(str_val: str, scope: Scope) -> ir.Value:
+def create_string(str_val: str, scope: Scope) -> ir.Value:
     builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
     file_str = get_compile_construct(scope, '__IMPORT_PATH__')
     cache_key = (file_str, str_val)
@@ -159,7 +160,7 @@ def _create_string(str_val: str, scope: Scope) -> ir.Value:
 
 @register_definition('string', ['compile'])
 def compile_string(lhs: Expression, scope: Scope, prop: Property) -> Expression:
-    shared_str = _create_string(prop.associated_value, scope)
+    shared_str = create_string(prop.associated_value, scope)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=shared_str)
     return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
 
@@ -431,7 +432,10 @@ def _cstdlib_module():
     # stdio
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name="fopen")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="fclose")
-    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.PointerType(ir.IntType(8))]), name="fread")
+    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.IntType(64), ir.PointerType(ir.IntType(8))]), name="fread")
+    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.IntType(64), ir.PointerType(ir.IntType(8))]), name="fwrite")
+    ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))]), name="ftell")
+    ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.IntType(32)]), name="fseek")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True), name="printf")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="puts")
     # string

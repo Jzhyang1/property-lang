@@ -1,7 +1,7 @@
 "lib/print.py" python definition import;
-"lib/io.py" python definition import;
+"lib/file.py" python definition import;
 
-y assign[_ file.open("tests/fileread.lang")];
+y assign["tests/fileread.lang" file open];
 
 x assign[y.read];
 x.print;

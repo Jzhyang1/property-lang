@@ -3,4 +3,5 @@ build
 cache
 *.pyc
 *.o
+*.out
 *.log
