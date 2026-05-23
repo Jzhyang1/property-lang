@@ -1,6 +1,5 @@
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, create_list, CompileError
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, create_list, CompileError
 
 @register_definition('list', [], ['items...'])
 def list_(lhs: Expression, args: list[Expression]) -> Expression:

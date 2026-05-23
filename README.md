@@ -251,17 +251,17 @@ There are no such types, all logical operators work on the `integer` type
 Here are the most important properties:
 - `!`: immediately resolves the last property
 - `.`: resolve the last property
+- `.(...)`: resolves the last property with the specified arguments
 - `;`: resolve the last property and begin a new expression (used as `.,`)
+- `identifier`: resolves the symbol to the *variable*'s value
+- `identifier assign(...)`: copies the *properties* of the expression in 
+  parenthesis to the *variable*
 - `identifier declare`: creates a *variable* with the *symbol* and gives it
   the specified *properties*
-- `identifier`: resolves the symbol to the *variable*'s value
 - `string import`: imports another `.lang` file
 - `string python definition import`: imports libraries e.g. 
   `"lib/compile.py" python definition import`
-
-- `.(...)`: resolves the last property with the specified arguments
-- `identifier assign(...)`: copies the *properties* of the expression in 
-  parenthesis to the *variable*
+- `context`: applies the properties of the lhs to all expressions in scope
 - `do(...)`: this is a no-op. Use this for evaluating *expressions* with side effects
 - `definition(...)`: creates a user-defined property (see next section)
 - `integer then(...)`: resolves into the enclosed value if the lhs is non-0 otherwise 

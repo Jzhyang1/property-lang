@@ -1,7 +1,6 @@
 from typing import Callable
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, define_apply, pwarning, CompileError, associated_value_to_expression
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, define_apply, pwarning, CompileError, associated_value_to_expression
 
 def integer_binary_op(op: str) -> Callable[[Callable[[int, int],int]], None]:
     def wrapper(func: Callable[[int, int], int]) -> None:

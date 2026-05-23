@@ -196,6 +196,23 @@ def declare(lhs: Expression, scope: Scope) -> Expression:
         p.copy() for p in lhs.properties if p.property != 'identifier'
     ])
     return lhs
+
+
+def get_context(scope: Scope, existing: list[Property] = []) -> list[Property]:
+    context_expr = scope.local_vars.get('__CONTEXT__')
+    if context_expr is not None:
+        existing.extend(context_expr.properties)
+    if scope.parent is not None:
+        get_context(scope.parent, existing)
+    return existing
+
+@register_definition('context')
+def update_context(lhs: Expression, scope: Scope) -> Expression:
+    # contexts define properties to be inherited, which are given by lhs
+    existing_context = scope.local_vars.get('__CONTEXT__', Expression(lhs.symbol.create_renamed('__CONTEXT__'), []))
+    new_properties = existing_context.properties + [p.copy() for p in lhs.properties]
+    scope.local_vars['__CONTEXT__'] = Expression(existing_context.symbol, new_properties)
+    return lhs
     
 @register_definition('definition', [], ['body...'])
 def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:

@@ -4,10 +4,9 @@ from typing_extensions import Literal
 import llvmlite.ir as ir
 import llvmlite.binding as llvm
 
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    import constants
-    from definitions import register_definition, define_apply, CompileError, expression_to_associated_value
+from constants import Definition, Scope, Expression, Property, Token
+import constants
+from definitions import register_definition, define_apply, CompileError, expression_to_associated_value, update_context
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -44,18 +43,17 @@ def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
     Compiles all properties marked for resolution in expr.
     '''
     from main import expression_resolve_all
-    expr_copy = Expression(expr.symbol, [Property(expr.symbol.create_renamed('compile'))])
+
+    expr_copy = Expression(expr.symbol, [])
+    update_context(Expression(expr.symbol.create_renamed('__CONTEXT__'), [Property(expr.symbol.create_renamed('compile'))]), scope)
     for prop in expr.properties:
         if prop.is_compound:
             prop = prop.copy()
             prop.compound_properties = [expression_resolve_all(p, scope, constants.immediate_resolve) for p in prop.compound_properties]
 
         if prop.property.s in constants.resolve:
-            new_expr_copy = _compile_last_property(expr_copy, scope, prop.compound_properties)
-            if not any(p.property.s == 'compile' for p in new_expr_copy.properties):
-                raise CompileError(f"Expected 'compile' property after compilation, got '{new_expr_copy.properties}'", anchor=expr_copy.symbol)
-            assert not any(p.property.s in constants.resolve for p in new_expr_copy.properties)
-            expr_copy = new_expr_copy
+            expr_copy = _compile_last_property(expr_copy, scope, prop.compound_properties)
+            # assert not any(p.property.s in constants.resolve for p in expr_copy.properties)
         else:
             expr_copy.properties.append(prop)
     return expr_copy
@@ -72,6 +70,13 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
             return _create_string(str_prop.associated_value, scope)
         raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
     return compile_prop.associated_value
+
+def _default_typemap() -> dict[str, ir.Type]:
+    return {
+        'integer': ir.IntType(64),
+        'string': ir.PointerType(ir.IntType(8)),
+        'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
+    }
 
 def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
     type_map = get_compile_construct(scope, '__TYPE_MAP__')
@@ -394,7 +399,7 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     # Populate parameters
     for param_name, param in zip(param_names, func.args):
-        compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=param)
+        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=param)
         compile_scope.local_vars[param_name] = Expression(
             symbol=lhs.symbol.create_renamed(param_name),
             properties=[compile_prop]
@@ -406,7 +411,6 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     builder.ret(res)
 
     property_prop = Property(func_prop.property.create_renamed('property'))
-    compile_prop = Property(lhs.symbol.create_renamed('compile'))
     result_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=func)
     return Expression(func_prop.property, [result_prop, compile_prop, property_prop])
 
@@ -460,7 +464,7 @@ def inherit_declarations(dst:ir.Module):
 
 @register_definition('import', ['compile'], ['module_name'])
 def compile_import(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-    lhs = lhs.discard_property('compile')   # We treat compile import as one op
+    lhs = lhs.discard_property('compile')   # We treat `compile import` as one op
     name = rhs.symbol.s # We name the module as the rhs symbol
     module = ir.Module(name)
     target = llvm.Target.from_default_triple()
@@ -475,12 +479,7 @@ def compile_import(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
     set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
-    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
-        # TODO don't do this manually
-        'integer': ir.IntType(64),
-        'string': ir.PointerType(ir.IntType(8)),
-        'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
-    })
+    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', _default_typemap())
 
     inherited = inherit_declarations(module)
     resolution_property = Property(lhs.symbol.create_renamed('.'))
@@ -515,12 +514,7 @@ def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
-    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', {
-        # TODO don't do this manually
-        'integer': ir.IntType(64),
-        'string': ir.PointerType(ir.IntType(8)),
-        'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
-    })
+    set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', _default_typemap())
 
     inherited = inherit_declarations(module) # Add type definitions to module
     resolution_property = Property(lhs.symbol.create_renamed('.'))
@@ -530,7 +524,7 @@ def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
 
     # Output compiled binary file
     llvm_ir = str(module)
-    print(llvm_ir)
+    # print(llvm_ir)
     llvm_mod = llvm.parse_assembly(llvm_ir)
     for module, functions in imported_modules.values():
         module_ir = str(module)

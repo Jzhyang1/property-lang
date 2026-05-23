@@ -1,15 +1,11 @@
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, define_apply, CompileError
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, define_apply, CompileError
+import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
-
 from constants import Expression, Property, Scope
-if 'definitions' in globals():
-    compile = globals()['definitions'].import_module(__file__, 'compile.py')
-else:
-    raise ImportError("definitions module not found, cannot import compile module")
+compile = globals()['definitions'].import_module(__file__, 'compile.py')
 
 class StructureInstanceDefinition(Definition):
     # requires symbol = 'name_of_structure'
@@ -88,16 +84,14 @@ class CompileStructureFieldDefinition(Definition):
         super().__init__(*args, **kwargs)
         self.field_index = field_index
         self.field_type = field_type
-        print('field type:', field_type)
     @define_apply
     def apply(self, lhs: Expression, scope: Scope) -> Expression:
         builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
         res = builder.extract_value(compile.get_compiled(lhs, scope), self.field_index)
         prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
         
-        name_of_struct = self.properties[0].property.s
+        name_of_struct = self.properties[-1].property.s
         lhs, _ = lhs.discard_properties_after(name_of_struct)
-        print('>>>', self.properties[0].property.s, self.field_type)
         lhs.properties += self.field_type.properties
         return lhs.replace_property('compiled_result', prop)
         
@@ -120,7 +114,6 @@ class CompileStructureFieldAssignmentDefinition(Definition):
 @register_definition('structure', ['compile'], ['fields...'])
 def compile_structure(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     name = lhs.properties.pop().copy()    # The name of the structure is the last property of the expression
-    print('compiling structure:', name.property.s)
     # We create a named LLVM struct type for the structure definition
     # and the CompileStructure Instance/FieldAccess/FieldAssignment definitions
     module: ir.Module = compile.get_compile_construct(scope, '__MODULE__')
@@ -140,5 +133,4 @@ def compile_structure(lhs: Expression, body: list[Expression], scope: Scope) -> 
     
     type_map = compile.get_compile_construct(scope, '__TYPE_MAP__')
     type_map[name.property.s] = llvm_struct_type
-    print('structure compiled:', name.property.s, '->', lhs)
     return lhs

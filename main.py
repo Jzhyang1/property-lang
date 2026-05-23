@@ -2,7 +2,7 @@ from typing import Callable, Collection
 
 from constants import Property, Expression, Definition, Scope
 import constants
-from definitions import global_definitions, make_global_vars, pwarning, CompileError
+from definitions import global_definitions, get_context, make_global_vars, pwarning, CompileError
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
@@ -34,32 +34,39 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
 
     additional_compound is used for `.(...)` resolution to pass the arguments
     '''
-    property_set: set[str] = set(p.property.s for p in expr.properties)
     # Combine with the additional properties
     prop = prop.copy()
     prop.compound_properties += additional_compound
 
-    matches = scope.defn_lookup(prop.property.s)
+    # Rank results in increasing weight exponentially
+    property_values: dict[str, int] = {}
+    weight = 1
+    for p in expr.properties:
+        property_values[p.property.s] = weight
+        weight *= 2
+    # Everything in context gets max weight
+    context = get_context(scope)
+    for p in context:
+        property_values[p.property.s] = weight
+
+    matches = scope.defn_lookup_recursive(prop.property.s)
+    matches = [m for m in matches if all(p.property.s in property_values for p in m.properties)] # filter for matches that have all the other properties
     # TODO filter out compound properties to those that match the properties of expr
-    matches = [m for m in matches if all(p.property.s in property_set for p in m.properties)] # filter for matches that have all the other properties
     if len(matches) == 0:
-        pwarning(f"no matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
+        pwarning(f"no matches found for property {prop} in {expr}", anchor=prop.property)
         return expr
     
-    # if there are multiple matches choose the one that has the last property of properties
-    #  then the second to last, etc. until we find a unique match or run out of properties/matches
-    matches_sets = [(set(p.property.s for p in m.properties), m) for m in matches]
-    for p in reversed(expr.properties):
-        if len(matches_sets) <= 1:
-            break
-        new_matches_sets = [(ps, m) for ps, m in matches_sets if p.property.s in ps]
-        if len(new_matches_sets) != 0:
-            matches_sets = new_matches_sets
-    # if there are multiple matches with the same number of properties, print an error
-    #  we know this happened if len(matches_sets) == 0 since that means we discarded multiple matches at the same time
-    if len(matches_sets) == 0:
-        raise CompileError(f"multiple matches found for property {prop} in symbol {expr.symbol} with properties {property_set}", anchor=prop.property)
-    _, best_match = matches_sets[-1]
+    # rank matches by the sum of the weights of their properties
+    match_weights = [(sum(property_values.get(p.property.s, 0) for p in m.properties), m) for m in matches]
+    match_weights.sort(reverse=True)
+
+    if len(match_weights) == 1:
+        best = match_weights[0]
+    else:
+        best, next_best, *_ = match_weights
+        if best[0] == next_best[0]:
+            raise CompileError(f"multiple matches found for property {prop} in {expr}", anchor=prop.property)
+    _, best_match = best
     # print(expr, '>>>', best_match)
     
     # forward resolve

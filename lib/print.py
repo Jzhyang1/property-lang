@@ -1,13 +1,10 @@
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, CompileError
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, CompileError
+import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
-if 'definitions' in globals():
-    compile = globals()['definitions'].import_module(__file__, 'compile.py')
-else:
-    raise ImportError("definitions module not found, cannot import compile module")
+compile = definitions.import_module(__file__, 'compile.py')
 
 @register_definition('print', ['integer'])
 def print_integer(lhs: Expression) -> Expression:

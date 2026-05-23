@@ -1,6 +1,5 @@
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, pwarning, CompileError
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, pwarning, CompileError
 
 @register_definition('file')
 def file_property(lhs: Expression) -> Expression:

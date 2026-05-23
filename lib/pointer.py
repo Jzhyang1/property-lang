@@ -1,13 +1,10 @@
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    from definitions import register_definition, CompileError
+from constants import Definition, Scope, Expression, Property, Token
+from definitions import register_definition, CompileError
+import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
-if 'definitions' in globals():
-    compile = globals()['definitions'].import_module(__file__, 'compile.py')
-else:
-    raise ImportError("definitions module not found, cannot import compile module")
+compile = definitions.import_module(__file__, 'compile.py')
 
 class PointedTo:
     def __init__(self, items: list[Expression], index: int = 0):
@@ -102,7 +99,7 @@ def compile_dereference(lhs: Expression, scope: Scope) -> Expression:
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res = builder.load(ptr_value)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
-    return lhs.replace_property('compiled_result', compile_prop)
+    return lhs.replace_property('pointer', Property(lhs.symbol.create_renamed('integer'))).replace_property('compiled_result', compile_prop)
 
 @register_definition('assign', ['compile', 'pointer', 'dereference'])
 def compile_dereference_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -120,9 +117,9 @@ def compile_reference(lhs: Expression, scope: Scope) -> Expression:
     if var is None:
         raise CompileError(f"Undefined variable '{name}'")
     var_ptr = compile.get_compiled(var, scope)
-    compile_prop = Property(lhs.symbol.create_renamed('compile'), is_association=True, associated_value=var_ptr)
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compile', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
 
 @register_definition('allocate', ['compile'], ['count'])
 def compile_allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:

@@ -53,8 +53,6 @@ class Property:
         self.associated_value = associated_value
         self.start_char = start_char
     def __str__(self) -> str:
-        if self.is_association:
-            return f'{self.property}({self.associated_value})'
         return str(self.property) + (self.start_char or '?') + ','.join(map(str, self.compound_properties)) + parentheses.get(self.start_char, '?') if self.is_compound else str(self.property)
     def __repr__(self) -> str:
         return str(self)
@@ -179,9 +177,9 @@ class Scope:
     def var_lookup(self, var_name: str) -> Expression | None:
         return self.local_vars[var_name] if var_name in self.local_vars else \
             self.parent.var_lookup(var_name) if self.parent is not None else None
-    def defn_lookup(self, var_name: str) -> list[Definition]:
+    def defn_lookup_recursive(self, var_name: str) -> list[Definition]:
         local_found = self.local_defns[var_name] if var_name in self.local_defns else []
-        parent_found = self.parent.defn_lookup(var_name) if self.parent is not None else []
+        parent_found = self.parent.defn_lookup_recursive(var_name) if self.parent is not None else []
         return local_found + parent_found
     def force_var_lookup(self, var_name: str) -> Expression:
         var = self.var_lookup(var_name)

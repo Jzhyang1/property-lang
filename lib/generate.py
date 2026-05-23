@@ -1,9 +1,8 @@
 import os
 from typing import Any
-if not '__LANG__' in globals():
-    from constants import Definition, Scope, Expression, Property, Token
-    import constants
-    from definitions import register_definition, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
+from constants import Definition, Scope, Expression, Property, Token
+import constants
+from definitions import register_definition, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
 
 
 class GeneratorError(Exception):
