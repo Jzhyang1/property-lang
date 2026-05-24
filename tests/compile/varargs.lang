@@ -1,0 +1,12 @@
+"lib/compile.py" python definition import;
+"lib/print.py" python definition import;
+"lib/list.py" python definition import;
+"lib/list.lang" import(at);
+
+0 do (
+	0 second definition{
+		arguments.at[1];
+	};
+
+	0 second[18, 9, 4, 2].print;
+) compile_to("print9.out");

@@ -86,43 +86,4 @@ def length(lhs: Expression) -> Expression:
     ])
     
 # Compilation
-
-# This file only implements `compile list(...)`, the rest are implemented in `list.lang`
-# A list is implemented as a contiguous memory with a size header for each item
-# followed by the item data. After the last item is a terminating 64-bit size = 0
-# <64-bit size> <item of size> <64-bit size> <item of size> ... <64-bit size = 0>
-@register_definition('list', ['compile'], ['items...'])
-def compile_list(lhs: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-    builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
-    module: ir.Module = compile.get_compile_construct(scope, '__MODULE__')
-
-    item_sizes = []
-    int_size = 8
-    total_size = int_size * (len(args) + 1) # +1 for the terminating 0 size
-    for arg in args:
-        arg_type: ir.Type = compile.get_type(arg, scope)
-        arg_size = compile.size_of_type(arg_type) # TODO make sure that this works with alignment
-        total_size += arg_size
-        item_sizes.append((arg_type, arg_size))
-    
-    output_ptr = builder.call(module.get_global('malloc'), [ir.Constant(ir.IntType(64), total_size)], 'malloc_tmp')
-    current_ptr = output_ptr
-    for arg, (arg_type, arg_size) in zip(args, item_sizes):
-        builder.store(ir.Constant(ir.IntType(64), arg_size), builder.bitcast(current_ptr, ir.PointerType(ir.IntType(64))))
-        current_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(64), int_size)])
-        arg_val = compile.get_compiled(arg, scope)
-        builder.store(arg_val, builder.bitcast(current_ptr, ir.PointerType(arg_type)))
-        current_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(64), arg_size)])
-    builder.store(ir.Constant(ir.IntType(64), 0), builder.bitcast(current_ptr, ir.PointerType(ir.IntType(64))))
-    
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=output_ptr)
-    return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
-
-@register_definition('list', ['compile', 'pointer'])
-def compile_list_from_pointer(lhs: Expression, scope: Scope, prop: Property) -> Expression:
-    builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
-    ptr_value = compile.get_compiled(lhs, scope)
-    # Cast to pointer to int8
-    ptr_value = builder.bitcast(ptr_value, ir.PointerType(ir.IntType(8)))
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=ptr_value)
-    return lhs.replace_property('pointer', prop).replace_property('compiled_result', compile_prop)
+# Find compilation under compile.py and lib/list.lang

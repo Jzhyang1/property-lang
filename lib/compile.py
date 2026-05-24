@@ -80,7 +80,7 @@ def _default_typemap() -> dict[str, ir.Type]:
         'list': ir.PointerType(ir.IntType(8)), # We will treat lists as opaque pointers in the compiled code
     }
 
-def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
+def get_type(expr: Expression, scope: Scope) -> ir.Type:
     type_map = get_compile_construct(scope, '__TYPE_MAP__')
     for prop in reversed(expr.properties):
         if prop.property.s in type_map:
@@ -113,13 +113,17 @@ class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
     @define_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+        args = [lhs] + args
+        if len(args) < len(self.params):
+            raise CompileError(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {lhs}, {args})", anchor=lhs.symbol)
+        args, var_args = args[:len(self.params)], args[len(self.params):]
+
         # make a call to the function
         builder = get_compile_construct(scope, '__BUILDER__')
-        arg_vals = [get_compiled(lhs, scope)]
-        for prop in args:
-            arg_expr = expression_compile_all(prop, scope)
-            arg_val = get_compiled(arg_expr, scope)
-            arg_vals.append(arg_val)
+        compiled_args = [get_compiled(expression_compile_all(arg, scope), scope) for arg in args]
+        compiled_var_arg = get_compiled(compile_list(lhs, [expression_compile_all(arg, scope) for arg in var_args], scope), scope)
+        arg_vals = compiled_args + [compiled_var_arg]
+
         module = get_compile_construct(scope, '__MODULE__')
         llvm_func = module.get_global(self.prop_symb)
         call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
@@ -416,11 +420,12 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     # TODO types for parameters and return value
     params = [lhs] + func_prop.compound_properties
     params = [param.discard_property('identifier') for param in params]
-    param_types = [get_type(param, scope) for param in params]
+    vararg = Expression(symbol=lhs.symbol.create_renamed('arguments'), properties=[Property(lhs.symbol.create_renamed('list'))])
+    arg_types = [get_type(param, scope) for param in params] + [get_type(vararg, scope)]
 
     defn = CompiledUserDefinition(func_name, lhs.properties, is_compound=True, params=params, body=[], scope=scope)
     # TODO return a non-integer type
-    func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), param_types), name=func_name)
+    func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), arg_types), name=func_name)
     block = func.append_basic_block(name=func_name)
     scope.local_defns.setdefault(func_name, []).append(defn)
 
@@ -433,9 +438,14 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     for param, arg in zip(params, func.args):
         compile_prop = Property(compile_token, is_association=True, associated_value=arg)
         compile_scope.local_vars[param.symbol.s] = Expression(
-            symbol=lhs.symbol.create_renamed(param.symbol.s),
+            symbol=param.symbol,
             properties=[compile_prop, arg_prop] + param.properties
         )
+    vararg_compile_prop = Property(compile_token, is_association=True, associated_value=func.args[len(params)])
+    compile_scope.local_vars[vararg.symbol.s] = Expression(
+        symbol=vararg.symbol,
+        properties=[vararg_compile_prop, arg_prop] + vararg.properties
+    )
 
     for expr in body:
         res_expr = expression_compile_all(expr, compile_scope)
@@ -446,6 +456,49 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     result_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=func)
     return Expression(func_prop.property, [result_prop, compile_prop, property_prop])
 
+# Lists (we need this for variadic args)
+
+# This file only implements `compile list(...)`, the rest are implemented in `list.lang`
+# A list is implemented as a contiguous memory with a size header for each item
+# followed by the item data. After the last item is a terminating 64-bit size = 0
+# <64-bit size> <item of size> <64-bit size> <item of size> ... <64-bit size = 0>
+@register_definition('list', ['compile'], ['items...'])
+def compile_list(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    '''lhs is an anchor; none of its properties are relevant'''
+    builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
+    module: ir.Module = get_compile_construct(scope, '__MODULE__')
+
+    item_sizes = []
+    int_size = size_of_type(ir.IntType(64))
+    total_size = int_size * (len(args) + 1) # +1 for the terminating 0 size
+    for arg in args:
+        arg_type: ir.Type = get_type(arg, scope)
+        arg_size = size_of_type(arg_type) # TODO make sure that this works with alignment
+        total_size += arg_size
+        item_sizes.append((arg_type, arg_size))
+    
+    output_ptr = builder.call(module.get_global('malloc'), [ir.Constant(ir.IntType(64), total_size)], 'malloc_tmp')
+    current_ptr = output_ptr
+    for arg, (arg_type, arg_size) in zip(args, item_sizes):
+        builder.store(ir.Constant(ir.IntType(64), arg_size), builder.bitcast(current_ptr, ir.PointerType(ir.IntType(64))))
+        current_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(64), int_size)])
+        arg_val = get_compiled(arg, scope)
+        builder.store(arg_val, builder.bitcast(current_ptr, ir.PointerType(arg_type)))
+        current_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(64), arg_size)])
+    builder.store(ir.Constant(ir.IntType(64), 0), builder.bitcast(current_ptr, ir.PointerType(ir.IntType(64))))
+    
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=output_ptr)
+    list_prop = Property(lhs.symbol.create_renamed('list'))
+    return lhs.create_with_property(list_prop).replace_property('compiled_result', compile_prop)
+
+@register_definition('list', ['compile', 'pointer'])
+def compile_list_from_pointer(lhs: Expression, scope: Scope, prop: Property) -> Expression:
+    builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
+    ptr_value = get_compiled(lhs, scope)
+    # Cast to pointer to int8
+    ptr_value = builder.bitcast(ptr_value, ir.PointerType(ir.IntType(8)))
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=ptr_value)
+    return lhs.replace_property('pointer', prop).replace_property('compiled_result', compile_prop)
 
 # TODO make the compilation imports/linking more explicit
 imported_modules = {}

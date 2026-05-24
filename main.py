@@ -8,12 +8,18 @@ from tokenizer import tokenize, build_tree
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         self.trace_stack.append((expr, args, scope, prop))    # for trace prints
-        new_varscope = {
-            self.prop_symb: expr
-        }
+        if len(args) < len(self.params):
+            raise CompileError(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {args})", anchor=prop.property)
+        
+        new_scope = Scope(parent_scope=self.scope)
+        new_scope.local_vars[self.prop_symb] = expr
         for arg, param in zip(args, self.params):
-            new_varscope[param.symbol.s] = arg
-        new_scope = Scope(local_vars=new_varscope, parent_scope=self.scope)
+            new_scope.local_vars[param.symbol.s] = arg
+        # We pass in any additional arguments via a special variable `arguments`
+        additional_args = args[len(self.params):]
+        list_prop = Property(expr.symbol.create_renamed('list'), is_association=True, associated_value=additional_args)
+        new_scope.local_vars['arguments'] = Expression(expr.symbol.create_renamed('arguments'), properties=[list_prop])
+
         last = expr
         for local_expr in self.body:
             try:

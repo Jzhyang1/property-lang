@@ -84,7 +84,7 @@ def pick_lhs(self, expr, args, scope, prop) -> Expression:
     return expr
 def pick_rhs(self, expr, args: list[Expression], scope, prop) -> Expression:
     if len(args) ==  1: return args[0]
-    raise CompileError(f"expected exactly one argument for rhs, got {args}")
+    raise CompileError(f"{prop}: expected exactly one argument for rhs, got {args}", anchor=prop.property)
 def pick_args(self, expr, args: list[Expression], scope, prop) -> list[Expression]:
     return args
 def pick_scope(self, expr, args, scope, prop) -> Scope:
@@ -115,13 +115,14 @@ def define_apply(func: Callable):
     return apply
 
 # Decorator
-def register_definition(symbol: str, property_names: list[str] = [], param_names: list[str] = [], body: list[Expression] = [], is_compound: bool = False):
-    def decorator(func: Callable):
+def register_definition(symbol: str, property_names: list[str] = [], param_names: list[str] = [], is_compound: bool = False):
+    def decorator[T](func: T) -> T:
+        assert callable(func)
         file = get_defn_file(func)
         row = get_defn_line(func)
         props = [Property(Token(p_name, file, row, 0, token_types['alnum'])) for p_name in property_names]
         params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) for param_name in param_names]
-        defn = LambdaDefinition(symbol, props, is_compound, params, body, define_apply(func))
+        defn = LambdaDefinition(symbol, props, is_compound, params, [], define_apply(func))
         
         global_definitions.setdefault(symbol, []).append(defn)
         return func
