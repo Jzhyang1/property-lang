@@ -2,14 +2,15 @@ from typing import Callable, Collection
 
 from constants import Property, Expression, Definition, Scope
 import constants
-from definitions import global_definitions, get_context, make_global_vars, pwarning, CompileError
+from errors import perror, pwarning
+from definitions import global_definitions, get_context, make_global_vars
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         self.trace_stack.append((expr, args, scope, prop))    # for trace prints
         if len(args) < len(self.params):
-            raise CompileError(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {args})", anchor=prop.property)
+            perror(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {args})", anchor=prop)
         
         new_scope = Scope(parent_scope=self.scope)
         new_scope.local_vars[self.prop_symb] = expr
@@ -25,7 +26,7 @@ class UserDefinedDefinition(Definition):
             try:
                 last = expression_resolve_all(local_expr, new_scope, constants.resolve)
             except Exception as e:
-                raise CompileError(f"error while resolving {local_expr}", anchor=local_expr.symbol, child_error=e)
+                perror(f"error while resolving {local_expr}", anchor=local_expr, child_error=e)
         self.trace_stack.pop()
         return last
 
@@ -59,7 +60,7 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     matches = [m for m in matches if all(p.property.s in property_values for p in m.properties)] # filter for matches that have all the other properties
     # TODO filter out compound properties to those that match the properties of expr
     if len(matches) == 0:
-        pwarning(f"no matches found for property {prop} in {expr}", anchor=prop.property)
+        pwarning(f"Could not resolve property `{prop}` on `{expr}`", anchor=expr)
         return expr
     
     # rank matches by the sum of the weights of their properties
@@ -71,7 +72,7 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     else:
         best, next_best, *_ = match_weights
         if best[0] == next_best[0]:
-            raise CompileError(f"multiple matches found for property {prop} in {expr}", anchor=prop.property)
+            perror(f"multiple matches found for property {prop} in {expr}", anchor=prop)
     _, best_match = best
     # print(expr, '>>>', best_match)
     
@@ -91,7 +92,7 @@ def resolve_last_property(expr: Expression, scope: Scope, additional_compound: l
     '''
     properties = expr.properties
     if len(properties) == 0:
-        raise CompileError("cannot resolve property on expression with no properties", anchor=expr.symbol)
+        perror("cannot resolve property on expression with no properties", anchor=expr)
     *properties, prop = properties
     if prop in constants.resolve:
         # Go one level down

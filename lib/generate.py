@@ -2,8 +2,8 @@ import os
 from typing import Any
 from constants import Definition, Scope, Expression, Property, Token
 import constants
-from definitions import register_definition, pwarning, CompileError, import_raw_python_file, expression_to_associated_value
-
+from definitions import register_definition, import_raw_python_file, expression_to_associated_value
+from errors import perror, pwarning
 
 class GeneratorError(Exception):
     pass
@@ -15,7 +15,7 @@ configuration: dict[str, Any] = {
 def generate_file(output_file: str, prompt: str) -> None:
     from litellm import completion, ModelResponse
     if 'messages' in configuration or 'stream' in configuration:
-        raise CompileError("can not have 'messages' or 'stream' in configuration")
+        perror("can not have 'messages' or 'stream' in configuration")
 
     resp = completion(
         messages=[
@@ -81,7 +81,7 @@ def check_definition(lhs: Expression, args: list[Expression], scope: Scope) -> E
         for condition in args:
             condition_evaluated = expression_resolve_all(condition, scope, constants.resolve)
             if (val := condition_evaluated.try_get_property('integer')) is None:
-                pwarning(f'Condition {condition} did not evaluate to an integer, got {condition_evaluated}')
+                return pwarning(f'Condition {condition} did not evaluate to an integer, got {condition_evaluated}', anchor=condition)
             elif val.associated_value == 0:
                 break
         else:
@@ -99,7 +99,7 @@ def check_definition(lhs: Expression, args: list[Expression], scope: Scope) -> E
                 del scope.local_vars[defn.symbol.s]
             elif defn.symbol.s in scope.local_defns:
                 del scope.local_defns[defn.symbol.s]
-    raise CompileError(f'Conditions {args} exceeded retries, giving up')
+    perror(f'Conditions {args} exceeded retries, giving up', anchor=lhs)
 
 @register_definition('configure', ['generate'], ['value'])
 def configure_definition(lhs: Expression, rhs: Expression) -> Expression:

@@ -6,7 +6,8 @@ import llvmlite.binding as llvm
 
 from constants import Definition, Scope, Expression, Property, Token
 import constants
-from definitions import register_definition, define_apply, CompileError, expression_to_associated_value, update_context
+from definitions import register_definition, define_apply, expression_to_associated_value, update_context
+from errors import perror, pwarning
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -45,7 +46,6 @@ def expression_compile_all(expr: Expression, scope: Scope) -> Expression:
     from main import expression_resolve_all
 
     expr_copy = Expression(expr.symbol, [])
-    update_context(Expression(expr.symbol.create_renamed('__CONTEXT__'), [Property(expr.symbol.create_renamed('compile'))]), scope)
     for prop in expr.properties:
         if prop.is_compound:
             prop = prop.copy()
@@ -68,7 +68,7 @@ def get_compiled(expr: Expression, scope: Scope) -> ir.Value:
             return ir.Constant(ir.IntType(64), int_prop.associated_value or 0)
         elif (str_prop := expr.try_get_property('string')) is not None:
             return create_string(str_prop.associated_value, scope)
-        raise CompileError(f"expression {expr} is not compiled", anchor=expr.symbol)
+        perror(f"expression {expr} is not compiled", anchor=expr)
     return compile_prop.associated_value
 
 def _default_typemap() -> dict[str, ir.Type]:
@@ -85,7 +85,7 @@ def get_type(expr: Expression, scope: Scope) -> ir.Type:
     for prop in reversed(expr.properties):
         if prop.property.s in type_map:
             return type_map[prop.property.s]
-    raise CompileError(f"Cannot determine type of expression '{expr}'", anchor=expr.symbol)
+    perror(f"Cannot determine type of expression '{expr}'", anchor=expr)
 
 def size_of_type(type: ir.Type) -> int:
     # Returns the size of type in bytes
@@ -100,14 +100,14 @@ def size_of_type(type: ir.Type) -> int:
         return sum(size_of_type(elem) for elem in type.elements)
     if hasattr(ir, 'IdentifiedStructType') and isinstance(type, ir.IdentifiedStructType):
         if getattr(type, 'is_opaque', False):
-            raise CompileError(f"Cannot determine size of opaque struct type '{type}'")
+            perror(f"Cannot determine size of opaque struct type '{type}'")
         elements = getattr(type, 'elements', None)
         if elements is None:
-            raise CompileError(f"Cannot determine size of struct type '{type}'")
+            perror(f"Cannot determine size of struct type '{type}'")
         return sum(size_of_type(elem) for elem in elements)
     if isinstance(type, ir.FunctionType):
-        raise CompileError(f"Cannot determine size of function type '{type}'")
-    raise CompileError(f"Unsupported LLVM type for size calculation: '{type}'")
+        perror(f"Cannot determine size of function type '{type}'")
+    raise perror(f"Unsupported LLVM type for size calculation: '{type}'")
 
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
@@ -115,7 +115,7 @@ class CompiledUserDefinition(Definition):
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         args = [lhs] + args
         if len(args) < len(self.params):
-            raise CompileError(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {lhs}, {args})", anchor=lhs.symbol)
+            perror(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {lhs}, {args})", anchor=lhs)
         args, var_args = args[:len(self.params)], args[len(self.params):]
 
         # make a call to the function
@@ -256,7 +256,7 @@ def create_variable(name: str, scope: Scope, base_properties: Expression) -> Exp
 def compile_identifier(lhs: Expression, scope: Scope) -> Expression:
     var_expr = scope.var_lookup(lhs.symbol.s)
     if var_expr is None:
-        raise CompileError(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs.symbol)
+        return pwarning(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs)
     builder = get_compile_construct(scope, '__BUILDER__')
     if var_expr.try_get_property('argument') is None:
         var_ptr = get_compiled(var_expr, scope)
@@ -283,7 +283,7 @@ def compile_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
     var = get_compiled(var_expr, scope)
     val = get_compiled(val_expr, scope)
     if not all(val_expr.try_get_property(p.property.s) for p in var_expr.properties):
-        raise CompileError(f"Type mismatch in assignment to variable '{lhs.symbol.s}'", anchor=lhs.symbol)
+        return pwarning(f"Type mismatch in assignment to variable '{lhs.symbol.s}'", anchor=lhs)
     builder = get_compile_construct(scope, '__BUILDER__')
     compile_res = builder.store(val, var)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=compile_res)
@@ -308,7 +308,7 @@ def compile_then(lhs: Expression, body: list[Expression], scope: Scope) -> Expre
     # 2. Emit "Then" Block
     builder.position_at_start(then_block)
     if len(body) == 0:
-        raise CompileError('`then` block cannot be empty')
+        return pwarning('`then` block cannot be empty', anchor=lhs)
     for expr in body:
         body_expr = expression_compile_all(expr, scope)
     body_val = get_compiled(body_expr, scope)
@@ -340,7 +340,7 @@ def compile_else(lhs: Expression, body: list[Expression], scope: Scope) -> Expre
     # 2. Emit "Else" Block
     builder.position_at_start(else_block)
     if len(body) == 0:
-        raise CompileError('`else` block cannot be empty')
+        return pwarning('`else` block cannot be empty', anchor=lhs)
     for expr in body:
         body_expr = expression_compile_all(expr, scope)
     body_val = get_compiled(body_expr, scope)
@@ -377,7 +377,7 @@ def compile_then_else(lhs: Expression, body: list[Expression], scope: Scope) -> 
     # 2. Emit "Then" and "Else" Blocks
     builder.position_at_start(then_block)
     if len(then_body) == 0:
-        raise CompileError('`then` block cannot be empty')
+        return pwarning('`then` block cannot be empty', anchor=lhs)
     for expr in then_body:
         then_expr = expression_compile_all(expr, scope)
     then_val = get_compiled(then_expr, scope)
@@ -386,7 +386,7 @@ def compile_then_else(lhs: Expression, body: list[Expression], scope: Scope) -> 
 
     builder.position_at_start(else_block)
     if len(else_body) == 0:
-        raise CompileError('`else` block cannot be empty')
+        return pwarning('`else` block cannot be empty', anchor=lhs)
     for expr in else_body:
         else_expr = expression_compile_all(expr, scope)
     else_val = get_compiled(else_expr, scope)
@@ -562,6 +562,8 @@ def compile_import(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
 
     # TODO cache the compiled results
     compile_scope = Scope(parent_scope=scope)
+    update_context(Expression(lhs.symbol.create_renamed('__CONTEXT__'), [Property(lhs.symbol.create_renamed('compile'))]), compile_scope)
+
     func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
     builder = ir.IRBuilder(func.append_basic_block(name="entry"))
     set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
@@ -585,10 +587,10 @@ def compile_import(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
 @register_definition('compile_to', [], ['file_dest'])
 def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     if (path := rhs.try_get_property('string')) is None:
-        raise CompileError(f'compile destination must be a string, got {rhs}')
+        return pwarning(f'compile destination must be a string, got {rhs}', anchor=rhs)
     path_str = path.associated_value
     if not (path_str.endswith('.obj') or path_str.endswith('.out')):
-        raise CompileError(f'compile destination must end with .obj or .out, got {rhs}')
+        return pwarning(f'compile destination must end with .obj or .out, got {rhs}', anchor=rhs)
 
     module = ir.Module(path_str)
     target = llvm.Target.from_default_triple()
@@ -597,6 +599,8 @@ def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     module.data_layout = target_machine.target_data # type: ignore
 
     compile_scope = Scope(parent_scope=scope)
+    update_context(Expression(lhs.symbol.create_renamed('__CONTEXT__'), [Property(lhs.symbol.create_renamed('compile'))]), compile_scope)
+
     func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name="main")
     builder = ir.IRBuilder(func.append_basic_block(name="entry"))
     set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)

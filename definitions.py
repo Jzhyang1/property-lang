@@ -1,8 +1,8 @@
 import inspect
 import sys
 import os
-from typing import Any, Callable, NoReturn
-from functools import wraps
+from typing import Any, Callable
+from errors import perror, pwarning
 
 from constants import Definition, LambdaDefinition, Scope, Expression, Property, Token, token_types
 import constants
@@ -20,28 +20,6 @@ def make_global_vars(file: str) -> dict[str, Expression]:
     }
     return global_vars
 
-def print_trace(trace_stack: list[tuple[Expression, list[Expression], Scope, Property]]):
-    return  # Comment out because not very useful
-    print("Traceback (most recent call last):", file=sys.stderr)
-    for (expr, args, scope, prop) in trace_stack:
-        anchor = expr.symbol
-        args_str = ', '.join(str(arg.symbol) for arg in args)
-        print(f'  {anchor.file}:{anchor.row}:{anchor.col} {expr.symbol} given {prop}({args_str})', file=sys.stderr)
-
-class CompileError(Exception):
-    def __init__(self, *msg, anchor: Token|None = None, child_error: Exception|AssertionError|None = None):
-        # Log trace from Definition
-        print_trace(Definition.trace_stack)
-        header = "Error:" if anchor is None else f"Error at {anchor.file}:{anchor.row}:{anchor.col}"
-        # If there is a child error, we include its args in our message
-        child_error_messages = child_error.args if child_error is not None else ()
-        super().__init__(header, *msg, *child_error_messages)
-
-def pwarning(*msg, anchor:Token|None=None):
-    print_trace(Definition.trace_stack)
-    header = "Warning:" if anchor is None else f"Warning at {anchor.file}:{anchor.row}:{anchor.col}"
-    print(header, *msg, file=sys.stderr)
-
 def expression_to_associated_value(expr: Expression) -> Any:
     if (ival := expr.try_get_property('integer')) is not None:
         return ival.associated_value
@@ -50,7 +28,7 @@ def expression_to_associated_value(expr: Expression) -> Any:
     elif (lval := expr.try_get_property('list')) is not None:
         return [expression_to_associated_value(e) for e in lval.associated_value]
     else:
-        raise CompileError(f'unable to convert {expr} to associated value')
+        perror(f"unable to convert {expr} to associated value", anchor=expr)
 
 def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expression:
     if isinstance(value, int):
@@ -68,7 +46,7 @@ def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expr
             ])
         ])
     else:
-        raise CompileError(f'unable to convert associated value {value} of type {type(value)} to expression in {name}')
+        perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}', anchor=anchor)
 
 def get_defn_file(source_type_object) -> str:
     return inspect.getfile(source_type_object) or "<imported file>"
@@ -84,7 +62,7 @@ def pick_lhs(self, expr, args, scope, prop) -> Expression:
     return expr
 def pick_rhs(self, expr, args: list[Expression], scope, prop) -> Expression:
     if len(args) ==  1: return args[0]
-    raise CompileError(f"{prop}: expected exactly one argument for rhs, got {args}", anchor=prop.property)
+    perror(f"{prop}: expected exactly one argument for rhs, got {args}", anchor=prop)
 def pick_args(self, expr, args: list[Expression], scope, prop) -> list[Expression]:
     return args
 def pick_scope(self, expr, args, scope, prop) -> Scope:
@@ -150,7 +128,7 @@ def assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
 def assert_(lhs: Expression) -> Expression:
     ival = lhs.force_get_property('integer')
     if ival.associated_value == 0:
-        raise CompileError(f"assertion failed {lhs}", anchor=lhs.symbol)
+        perror(f"assertion failed {lhs}", anchor=lhs)
     return lhs
     
 # Control flow
@@ -200,7 +178,9 @@ def declare(lhs: Expression, scope: Scope) -> Expression:
     return lhs
 
 
-def get_context(scope: Scope, existing: list[Property] = []) -> list[Property]:
+def get_context(scope: Scope, existing: list[Property]|None = None) -> list[Property]:
+    if existing is None:
+        existing = []
     context_expr = scope.local_vars.get('__CONTEXT__')
     if context_expr is not None:
         existing.extend(context_expr.properties)
@@ -212,8 +192,8 @@ def get_context(scope: Scope, existing: list[Property] = []) -> list[Property]:
 def update_context(lhs: Expression, scope: Scope) -> Expression:
     # contexts define properties to be inherited, which are given by lhs
     existing_context = scope.local_vars.get('__CONTEXT__', Expression(lhs.symbol.create_renamed('__CONTEXT__'), []))
-    new_properties = existing_context.properties + [p.copy() for p in lhs.properties]
-    scope.local_vars['__CONTEXT__'] = Expression(existing_context.symbol, new_properties)
+    existing_context.properties += [p.copy() for p in lhs.properties]
+    scope.local_vars['__CONTEXT__'] = existing_context
     return lhs
     
 @register_definition('definition', [], ['body...'])
@@ -239,8 +219,10 @@ def do(lhs: Expression) -> Expression:
 @register_definition('identifier')
 def identifier(lhs: Expression, scope: Scope) -> Expression:
     if (val := scope.var_lookup(lhs.symbol.s)) is None:
-        raise CompileError(f"unable to resolve identifier {lhs}", anchor=lhs.symbol)
-    return val.copy()
+        return pwarning(f"unable to resolve identifier {lhs}", anchor=lhs)
+    ret = val.copy()
+    ret.symbol = lhs.symbol # update the token (file, line, etc) for error messages
+    return ret
 
 # Imports
     
@@ -252,27 +234,27 @@ def find_import_file(path_anchor: str, path: str):
     elif os.path.exists(path_library):
         return path_library
     else:
-        raise CompileError(f'unable to resolve path {path}')
+        perror(f'unable to resolve path {path}')
 
 imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to avoid duplicate imports
 @register_definition('import', ['string'], ['import_signatures...'])
 def import_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
-        path = lhs.force_get_property('string')
-        path_str = find_import_file(lhs.symbol.file, path.associated_value)
-        if path_str in imported_files:
-            imported_globals = imported_files[path_str]
+    path = lhs.force_get_property('string')
+    path_str = find_import_file(lhs.symbol.file, path.associated_value)
+    if path_str in imported_files:
+        imported_globals = imported_files[path_str]
+    else:
+        from main import run_file
+        imported_globals = run_file(path_str)
+        imported_files[path_str] = imported_globals
+    for defn in body:
+        if defn.symbol.s in imported_globals.local_vars:
+            scope.local_vars[defn.symbol.s] = imported_globals.local_vars[defn.symbol.s]
+        elif defn.symbol.s in imported_globals.local_defns:
+            scope.local_defns.setdefault(defn.symbol.s, []).extend(imported_globals.local_defns[defn.symbol.s])
         else:
-            from main import run_file
-            imported_globals = run_file(path_str)
-            imported_files[path_str] = imported_globals
-        for defn in body:
-            if defn.symbol.s in imported_globals.local_vars:
-                scope.local_vars[defn.symbol.s] = imported_globals.local_vars[defn.symbol.s]
-            elif defn.symbol.s in imported_globals.local_defns:
-                scope.local_defns.setdefault(defn.symbol.s, []).extend(imported_globals.local_defns[defn.symbol.s])
-            else:
-                pwarning(f"unable to import {defn.symbol} from {path_str}")
-        return lhs
+            pwarning(f"unable to import {defn.symbol} from {path_str}", anchor=defn)
+    return lhs
 
 class ImportedSharedDefinition(Definition):
     def __init__(self, name: str, is_compound: bool, func: Callable, source_file: str):

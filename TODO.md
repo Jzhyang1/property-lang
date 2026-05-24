@@ -1,7 +1,5 @@
-- Why does importing python definition fail after importing lang files
 - Homogenous lists
 - String split
-- Better error handling
 - Non-int return type
 - Better type resolution for compile
 - Compile to Python

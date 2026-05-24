@@ -1,4 +1,4 @@
-from definitions import CompileError
+from errors import CompileError
 from constants import resolve
 from main import tokenize, build_tree, Scope, global_definitions, expression_resolve_all
 

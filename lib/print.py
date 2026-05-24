@@ -1,5 +1,5 @@
 from constants import Definition, Scope, Expression, Property, Token
-from definitions import register_definition, CompileError
+from definitions import register_definition
 import definitions
 
 # We extend compilation

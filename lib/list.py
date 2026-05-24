@@ -1,5 +1,6 @@
 from constants import Definition, Scope, Expression, Property, Token
-from definitions import register_definition, create_list, CompileError
+from errors import pwarning
+from definitions import register_definition, create_list
 import definitions
 # We extend compilation
 import llvmlite.ir as ir
@@ -28,7 +29,7 @@ def at(lhs: Expression, rhs: Expression) -> Expression:
     if 0 <= rval.associated_value < len(lval.associated_value):
         res = lval.associated_value[rval.associated_value]
     else:
-        raise CompileError(f'Index out of bounds: {rval.associated_value}', anchor=rhs.symbol)
+        return pwarning(f'Index out of bounds: {rval.associated_value}', anchor=rhs)
     return res
 
 @register_definition('+', ['list'], ['list_operand'])
@@ -47,7 +48,7 @@ def each(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     if iterable.associated_value is None:
         return lhs
     if (pval := rhs.try_get_property('property')) is None:
-        raise CompileError(f'`each` requires a property argument, got {rhs}')
+        return pwarning(f'`each` requires a property argument, got {rhs}', anchor=rhs)
     prop = pval.associated_value
     assert prop is not None
     from main import resolve_last_property

@@ -44,11 +44,11 @@ class Token:
 
 class Property:
     def __init__(self, property: Token, 
-                 is_compound: bool=False, compound_properties: list['Expression'] = [],
+                 is_compound: bool=False, compound_properties: list['Expression']|None = None,
                  is_association: bool=False, associated_value: Any=None, start_char: str=''):
         self.property = property
         self.is_compound = is_compound
-        self.compound_properties = compound_properties
+        self.compound_properties = compound_properties or []
         self.is_association = is_association
         self.associated_value = associated_value
         self.start_char = start_char

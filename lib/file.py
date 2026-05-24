@@ -1,7 +1,8 @@
 import io
 
 from constants import Definition, Scope, Expression, Property, Token
-from definitions import register_definition, pwarning, CompileError
+from errors import pwarning
+from definitions import register_definition
 import definitions
 
 # We extend compilation
@@ -16,18 +17,15 @@ def file_property(lhs: Expression) -> Expression:
 def open_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     string_prop = lhs.force_get_property('string')
-    if file_prop.is_association:
-        raise CompileError(f"cannot open already opened file {file_prop}")
     file_prop.is_association = True
     file_prop.associated_value = open(string_prop.associated_value) # type: ignore
     return lhs.discard_property('string')
 
 @register_definition('close', ['file'])
 def close_file(lhs: Expression) -> Expression:
-    file_prop = lhs.try_get_property('file')
-    assert file_prop is not None
+    file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
-        pwarning(f"cannot close file {file_prop} which is not open")
+        return pwarning(f"cannot close file {file_prop} which is not open", anchor=lhs)
     file_prop.is_association = False
     file_prop.associated_value.close()
     return lhs
@@ -36,7 +34,7 @@ def close_file(lhs: Expression) -> Expression:
 def size_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
-        raise CompileError(f"cannot get size of file {file_prop} which is not open")
+        return pwarning(f"cannot get size of file {file_prop} which is not open", anchor=lhs)
     position = file_prop.associated_value.tell()
     final_position = file_prop.associated_value.seek(0, io.SEEK_END)
     file_prop.associated_value.seek(position)    # Restore original position
@@ -48,7 +46,7 @@ def size_file(lhs: Expression) -> Expression:
 def read_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
-        raise CompileError(f"cannot read from file {file_prop} which is not open")
+        return pwarning(f"cannot read from file {file_prop} which is not open", anchor=lhs)
     return Expression(lhs.symbol.create_renamed('read'), [
         Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=file_prop.associated_value.read())
     ])
@@ -58,9 +56,9 @@ def read_file(lhs: Expression) -> Expression:
 def write_file(lhs: Expression, rhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
-        raise CompileError(f"cannot write to file {file_prop} which is not open")
+        return pwarning(f"cannot write to file {file_prop} which is not open", anchor=lhs)
     if (rval := rhs.try_get_property('string')) is None:
-        raise CompileError(f"write requires a string property, got {rhs}")
+        return pwarning(f"write requires a string property, got {rhs}", anchor=rhs)
     write_str: str = rval.associated_value # type: ignore
     file_prop.associated_value.write(write_str)
     return Expression(lhs.symbol.create_renamed('write'), [

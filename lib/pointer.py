@@ -1,5 +1,6 @@
 from constants import Definition, Scope, Expression, Property, Token
-from definitions import register_definition, CompileError
+from errors import perror, pwarning
+from definitions import register_definition
 import definitions
 
 # We extend compilation
@@ -39,7 +40,7 @@ def reference(lhs: Expression, scope: Scope) -> Expression:
     name = lhs.symbol.s
     associated_expr = scope.var_lookup(name)
     if associated_expr is None:
-        raise CompileError(f"Undefined variable '{name}'")
+        return pwarning(f"Undefined variable '{name}'", anchor=lhs)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=PointedTo([associated_expr]))
     return lhs.create_with_property(ptr_prop)
 
@@ -47,7 +48,7 @@ def reference(lhs: Expression, scope: Scope) -> Expression:
 def allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     count = rhs.force_get_property('integer').associated_value
     if count < 0:
-        raise CompileError(f"Cannot allocate negative count {count}", anchor=rhs.symbol)
+        return pwarning(f"Cannot allocate negative count {count}", anchor=rhs)
     allocated = [lhs.copy() for _ in range(count)]
     # Create an Expression that is not associated with any variable
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=PointedTo(allocated))
@@ -57,7 +58,7 @@ def allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
 def reallocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     new_count = rhs.force_get_property('integer').associated_value
     if new_count < 0:
-        raise CompileError(f"Cannot reallocate to negative count {new_count}", anchor=rhs.symbol)
+        return pwarning(f"Cannot reallocate to negative count {new_count}", anchor=rhs)
     ptr_prop = lhs.force_get_property('pointer')
     old_pointed_to = ptr_prop.associated_value
     old_items = old_pointed_to.items
@@ -89,11 +90,11 @@ def compile_integer_pointer(lhs: Expression, args: list[Expression], scope: Scop
     if len(args) == 1:
         bit_size = args[0].force_get_property('integer').associated_value
         if bit_size is None:
-            raise CompileError(f"Bit size for pointer must be known at compile time", anchor=args[0].symbol)
+            return pwarning(f"Bit size for pointer must be known at compile time", anchor=args[0])
     elif len(args) == 0:
         bit_size = 64
     else:
-        raise CompileError(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs.symbol)
+        return pwarning(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs)
     
     raw_value = compile.get_compiled(lhs, scope)
     # llvm ir wants pointer type, so we cast the raw value to a pointer type
@@ -108,11 +109,11 @@ def compile_pointer(lhs: Expression, args: list[Expression], scope: Scope) -> Ex
     if len(args) == 1:
         bit_size = args[0].force_get_property('integer').associated_value
         if bit_size is None:
-            raise CompileError(f"Bit size for pointer must be known at compile time", anchor=args[0].symbol)
+            perror(f"Bit size for pointer must be known at compile time", anchor=args[0])
     elif len(args) == 0:
         bit_size = 64
     else:
-        raise CompileError(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs.symbol)
+        perror(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs)
     
     raw_value = compile.get_compiled(lhs, scope)
     # we cast a pointer to a pointer of a different size
@@ -144,7 +145,7 @@ def compile_reference(lhs: Expression, scope: Scope) -> Expression:
     name = lhs.symbol.s
     var = scope.var_lookup(name)
     if var is None:
-        raise CompileError(f"Undefined variable '{name}'")
+        perror(f"Undefined variable '{name}'", anchor=lhs)
     var_ptr = compile.get_compiled(var, scope)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
