@@ -84,14 +84,43 @@ def pointer_retreat(lhs: Expression, rhs: Expression) -> Expression:
 
 # Compilation
 
-@register_definition('pointer', ['compile'])
-def compile_pointer(lhs: Expression, scope: Scope) -> Expression:
+@register_definition('pointer', ['compile', 'integer'], ['ref_bit_size...'])
+def compile_integer_pointer(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    if len(args) == 1:
+        bit_size = args[0].force_get_property('integer').associated_value
+        if bit_size is None:
+            raise CompileError(f"Bit size for pointer must be known at compile time", anchor=args[0].symbol)
+    elif len(args) == 0:
+        bit_size = 64
+    else:
+        raise CompileError(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs.symbol)
+    
     raw_value = compile.get_compiled(lhs, scope)
     # llvm ir wants pointer type, so we cast the raw value to a pointer type
     builder = compile.get_compile_construct(scope, '__BUILDER__')
-    res = builder.inttoptr(raw_value, ir.PointerType(ir.IntType(64)))
+    res = builder.inttoptr(raw_value, ir.PointerType(ir.IntType(bit_size)))
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
-    return lhs.replace_property('compiled_result', compile_prop)
+    pointer_prop = Property(lhs.symbol.create_renamed('pointer'))
+    return lhs.replace_property('pointer', pointer_prop).replace_property('compiled_result', compile_prop)
+
+@register_definition('pointer', ['compile'], ['ref_bit_size...'])
+def compile_pointer(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
+    if len(args) == 1:
+        bit_size = args[0].force_get_property('integer').associated_value
+        if bit_size is None:
+            raise CompileError(f"Bit size for pointer must be known at compile time", anchor=args[0].symbol)
+    elif len(args) == 0:
+        bit_size = 64
+    else:
+        raise CompileError(f"pointer definition takes at most one argument, got {len(args)}", anchor=lhs.symbol)
+    
+    raw_value = compile.get_compiled(lhs, scope)
+    # we cast a pointer to a pointer of a different size
+    builder = compile.get_compile_construct(scope, '__BUILDER__')
+    res = builder.bitcast(raw_value, ir.PointerType(ir.IntType(bit_size)))
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    pointer_prop = Property(lhs.symbol.create_renamed('pointer'))
+    return Expression(lhs.symbol, properties=[pointer_prop, compile_prop])  # We don't want to keep any types from the original expression
 
 @register_definition('dereference', ['compile', 'pointer'])
 def compile_dereference(lhs: Expression, scope: Scope) -> Expression:

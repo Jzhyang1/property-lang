@@ -61,3 +61,13 @@ def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
     print_res = builder.call(puts, [lhs_val], 'print_tmp')
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
     return lhs.replace_property('compiled_result', compile_prop)
+
+@register_definition('print', ['compile', 'pointer'])
+def compile_print_pointer(lhs: Expression, scope: Scope) -> Expression:
+    # For now we just print the pointer as an integer, but ideally we would want to print hex
+    builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
+    lhs_val = compile.get_compiled(lhs, scope)
+    lhs_val_int = builder.ptrtoint(lhs_val, ir.IntType(64))
+    print_res = builder.call(compile.get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val_int], 'print_tmp')
+    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
+    return lhs.replace_property('compiled_result', compile_prop)

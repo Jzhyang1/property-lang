@@ -1,0 +1,15 @@
+"lib/pointer.py" python definition import;
+
+0 do (
+	list compile list at(idx integer) definition{
+		item_size assign[list.pointer.dereference];
+		list_advanced assign[list.pointer.+(1)];
+
+		idx == 0 then{
+			list_advanced.pointer.dereference;
+		}else{
+			list_updated assign[list_advanced.pointer(8) + item_size];
+			list_updated.list.at(idx - 1);
+		};
+	};
+) compile import("lib/list.lang");

@@ -21,11 +21,12 @@ def make_global_vars(file: str) -> dict[str, Expression]:
     return global_vars
 
 def print_trace(trace_stack: list[tuple[Expression, list[Expression], Scope, Property]]):
+    return  # Comment out because not very useful
     print("Traceback (most recent call last):", file=sys.stderr)
     for (expr, args, scope, prop) in trace_stack:
-        symbol = expr.symbol
+        anchor = expr.symbol
         args_str = ', '.join(str(arg.symbol) for arg in args)
-        print(f'  {symbol.file}:{symbol.row}:{symbol.col} {expr.symbol} given {prop}({args_str})', file=sys.stderr)
+        print(f'  {anchor.file}:{anchor.row}:{anchor.col} {expr.symbol} given {prop}({args_str})', file=sys.stderr)
 
 class CompileError(Exception):
     def __init__(self, *msg, anchor: Token|None = None, child_error: Exception|AssertionError|None = None):

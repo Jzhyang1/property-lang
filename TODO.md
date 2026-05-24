@@ -1,3 +1,7 @@
+- Handle variadic args
+- Homogenous lists
+- String split
+- Non-int return type
 - Better type resolution for compile
 - Compile to Python
 - use deque instead of list for properties to see if it works better with compile

@@ -1,0 +1,8 @@
+"lib/list.py" python definition import;
+"lib/print.py" python definition import;
+"lib/list.lang" import(at);
+
+0 do (
+	x assign[_ list[2,4,6,8]];
+	x.at[2].print;
+) compile_to("print6.out");

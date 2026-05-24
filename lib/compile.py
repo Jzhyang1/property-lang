@@ -77,6 +77,7 @@ def _default_typemap() -> dict[str, ir.Type]:
         'string': ir.PointerType(ir.IntType(8)),
         'pointer': ir.PointerType(ir.IntType(64)), # TODO better type mapping for heterogenous pointers
         'file': ir.PointerType(ir.IntType(8)), # We will treat files as opaque pointers in the compiled code
+        'list': ir.PointerType(ir.IntType(8)), # We will treat lists as opaque pointers in the compiled code
     }
 
 def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
@@ -85,6 +86,28 @@ def get_type(expr: Expression, scope: Scope) -> CompileConstructType:
         if prop.property.s in type_map:
             return type_map[prop.property.s]
     raise CompileError(f"Cannot determine type of expression '{expr}'", anchor=expr.symbol)
+
+def size_of_type(type: ir.Type) -> int:
+    # Returns the size of type in bytes
+    if isinstance(type, ir.IntType):
+        return max(1, (type.width + 7) // 8)
+    if isinstance(type, ir.PointerType):
+        # Default to a 64-bit pointer size when no target data is available.
+        return 8
+    if isinstance(type, ir.ArrayType):
+        return type.count * size_of_type(type.element)
+    if isinstance(type, ir.LiteralStructType):
+        return sum(size_of_type(elem) for elem in type.elements)
+    if hasattr(ir, 'IdentifiedStructType') and isinstance(type, ir.IdentifiedStructType):
+        if getattr(type, 'is_opaque', False):
+            raise CompileError(f"Cannot determine size of opaque struct type '{type}'")
+        elements = getattr(type, 'elements', None)
+        if elements is None:
+            raise CompileError(f"Cannot determine size of struct type '{type}'")
+        return sum(size_of_type(elem) for elem in elements)
+    if isinstance(type, ir.FunctionType):
+        raise CompileError(f"Cannot determine size of function type '{type}'")
+    raise CompileError(f"Unsupported LLVM type for size calculation: '{type}'")
 
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
@@ -101,7 +124,8 @@ class CompiledUserDefinition(Definition):
         llvm_func = module.get_global(self.prop_symb)
         call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
         compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=call_res)
-        return lhs.replace_property('compiled_result', compile_prop)
+        ret_prop = Property(lhs.symbol.create_renamed('integer'), is_association=True) # TODO better type handling
+        return lhs.create_with_property(ret_prop).replace_property('compiled_result', compile_prop)
     
 
 class CompiledInterpretableUserDefinition(Definition):
@@ -230,8 +254,11 @@ def compile_identifier(lhs: Expression, scope: Scope) -> Expression:
     if var_expr is None:
         raise CompileError(f"Undefined variable '{lhs.symbol.s}'", anchor=lhs.symbol)
     builder = get_compile_construct(scope, '__BUILDER__')
-    var_ptr = get_compiled(var_expr, scope)
-    var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
+    if var_expr.try_get_property('argument') is None:
+        var_ptr = get_compiled(var_expr, scope)
+        var_val = builder.load(var_ptr, f'{lhs.symbol.s}_val')
+    else:
+        var_val = get_compiled(var_expr, scope)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_val)
     # We want to put the identifier properties before all the var_expr properties
     res = Expression(lhs.symbol, lhs.properties + var_expr.properties)
@@ -251,6 +278,8 @@ def compile_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
     # TODO move properties of val_expr to var_expr
     var = get_compiled(var_expr, scope)
     val = get_compiled(val_expr, scope)
+    if not all(val_expr.try_get_property(p.property.s) for p in var_expr.properties):
+        raise CompileError(f"Type mismatch in assignment to variable '{lhs.symbol.s}'", anchor=lhs.symbol)
     builder = get_compile_construct(scope, '__BUILDER__')
     compile_res = builder.store(val, var)
     compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=compile_res)
@@ -381,15 +410,15 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     # The function property is the last property in lhs
     # TODO name mangling to allow multiple functions with the same name but different signatures
     # The parameters are the lhs symbol and the symbols in the compound properties of the last property in the lhs
-    *props, func_prop = lhs.properties
+    lhs = lhs.discard_property('identifier')
+    *lhs.properties, func_prop = lhs.properties
     func_name = func_prop.property.s
     # TODO types for parameters and return value
     params = [lhs] + func_prop.compound_properties
     params = [param.discard_property('identifier') for param in params]
-    param_names = [param.symbol.s for param in params]
     param_types = [get_type(param, scope) for param in params]
 
-    defn = CompiledUserDefinition(func_name, props, is_compound=True, params=params, body=[], scope=scope)
+    defn = CompiledUserDefinition(func_name, lhs.properties, is_compound=True, params=params, body=[], scope=scope)
     # TODO return a non-integer type
     func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), param_types), name=func_name)
     block = func.append_basic_block(name=func_name)
@@ -399,11 +428,13 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     builder = ir.IRBuilder(block)
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     # Populate parameters
-    for param_name, param in zip(param_names, func.args):
-        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=param)
-        compile_scope.local_vars[param_name] = Expression(
-            symbol=lhs.symbol.create_renamed(param_name),
-            properties=[compile_prop]
+    compile_token = lhs.symbol.create_renamed('compiled_result')
+    arg_prop = Property(lhs.symbol.create_renamed('argument'))
+    for param, arg in zip(params, func.args):
+        compile_prop = Property(compile_token, is_association=True, associated_value=arg)
+        compile_scope.local_vars[param.symbol.s] = Expression(
+            symbol=lhs.symbol.create_renamed(param.symbol.s),
+            properties=[compile_prop, arg_prop] + param.properties
         )
 
     for expr in body:
