@@ -1,4 +1,4 @@
-from constants import Definition, Scope, Expression, Property, Token
+from constants import Definition, PropertiesLookup, Scope, Expression, Property, Token
 from definitions import register_definition, define_apply
 import definitions
 
@@ -74,8 +74,8 @@ class CompileStructureInstanceDefinition(Definition):
         assert self.structure.elements is not None
         field_values = [compile.get_compiled(field, scope) for field in body]
         llvm_struct = ir.Constant(self.structure, field_values)
-        compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=llvm_struct)
-        return lhs.create_with_property(prop).replace_property('compiled_result', compile_prop)
+        compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=llvm_struct)
+        return lhs.create_with_property(prop).replace_property('compiled_result', compiled_prop)
 
 class CompileStructureFieldDefinition(Definition):
     # Requires property_names = ['compile', 'name_of_structure']
@@ -131,6 +131,6 @@ def compile_structure(lhs: Expression, body: list[Expression], scope: Scope) -> 
     instance_defn = CompileStructureInstanceDefinition(name, [compile_prop], False, [], [], structure=llvm_struct_type)
     scope.local_defns.setdefault(name.property.s, []).append(instance_defn)
     
-    type_map = compile.get_compile_construct(scope, '__TYPE_MAP__')
-    type_map[name.property.s] = llvm_struct_type
+    type_map: PropertiesLookup = compile.get_compile_construct(scope, '__TYPE_MAP__')
+    type_map.exprs.append(compile.CompileTypeProperties(llvm_struct_type, [name]))
     return lhs

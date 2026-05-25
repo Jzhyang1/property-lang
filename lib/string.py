@@ -69,9 +69,9 @@ def compile_strequal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Ex
     res = builder.call(module.get_global('strcmp'), [lval, rval])
     # extend to 64-bit
     res = builder.zext(res, ir.IntType(64))
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
     int_property = Property(lhs.symbol.create_renamed('integer'))
-    return lhs.create_with_property(int_property).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(int_property).replace_property('compiled_result', compiled_prop)
 
 @register_definition('+', ['compile', 'string'], ['operand'])
 def compile_concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -90,8 +90,8 @@ def compile_concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expr
     malloced_ptr = builder.call(module.get_global('malloc'), [total_len_with_null])
     lcopied = builder.call(module.get_global('strcpy'), [malloced_ptr, lval])
     res = builder.call(module.get_global('strcat'), [lcopied, rval])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
-    return lhs.replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('length', ['compile', 'string'])
 def compile_length(self, lhs: Expression, scope: Scope) -> Expression:
@@ -100,6 +100,6 @@ def compile_length(self, lhs: Expression, scope: Scope) -> Expression:
 
     lval = compile.get_compiled(lhs, scope)
     res = builder.call(module.get_global('strlen'), [lval])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
     int_property = Property(lhs.symbol.create_renamed('integer'))
-    return lhs.create_with_property(int_property).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(int_property).replace_property('compiled_result', compiled_prop)

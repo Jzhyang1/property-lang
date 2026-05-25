@@ -20,7 +20,7 @@ def make_global_vars(file: str) -> dict[str, Expression]:
     }
     return global_vars
 
-def expression_to_associated_value(expr: Expression) -> Any:
+def expression_to_associated_value(expr: Expression) -> int | str | list:
     if (ival := expr.try_get_property('integer')) is not None:
         return ival.associated_value
     elif (sval := expr.try_get_property('string')) is not None:
@@ -30,7 +30,7 @@ def expression_to_associated_value(expr: Expression) -> Any:
     else:
         perror(f"unable to convert {expr} to associated value", anchor=expr)
 
-def associated_value_to_expression(anchor: Token, value: Any, name=None) -> Expression:
+def associated_value_to_expression(anchor: Token, value: Any, name:'str|None'=None) -> Expression:
     if isinstance(value, int):
         return Expression(anchor.create_renamed(name or 'integer'), [
             Property(anchor.create_renamed('integer'), is_association=True, associated_value=value)

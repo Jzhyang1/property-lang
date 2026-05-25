@@ -100,9 +100,9 @@ def compile_integer_pointer(lhs: Expression, args: list[Expression], scope: Scop
     # llvm ir wants pointer type, so we cast the raw value to a pointer type
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res = builder.inttoptr(raw_value, ir.PointerType(ir.IntType(bit_size)))
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
     pointer_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.replace_property('pointer', pointer_prop).replace_property('compiled_result', compile_prop)
+    return lhs.replace_property('pointer', pointer_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('pointer', ['compile'], ['ref_bit_size...'])
 def compile_pointer(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
@@ -119,17 +119,17 @@ def compile_pointer(lhs: Expression, args: list[Expression], scope: Scope) -> Ex
     # we cast a pointer to a pointer of a different size
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res = builder.bitcast(raw_value, ir.PointerType(ir.IntType(bit_size)))
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
     pointer_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return Expression(lhs.symbol, properties=[pointer_prop, compile_prop])  # We don't want to keep any types from the original expression
+    return Expression(lhs.symbol, properties=[pointer_prop, compiled_prop])  # We don't want to keep any types from the original expression
 
 @register_definition('dereference', ['compile', 'pointer'])
 def compile_dereference(lhs: Expression, scope: Scope) -> Expression:
     ptr_value = compile.get_compiled(lhs, scope)
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res = builder.load(ptr_value)
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
-    return lhs.replace_property('pointer', Property(lhs.symbol.create_renamed('integer'))).replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
+    return lhs.replace_property('pointer', Property(lhs.symbol.create_renamed('integer'))).replace_property('compiled_result', compiled_prop)
 
 @register_definition('assign', ['compile', 'pointer', 'dereference'])
 def compile_dereference_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -147,9 +147,9 @@ def compile_reference(lhs: Expression, scope: Scope) -> Expression:
     if var is None:
         perror(f"Undefined variable '{name}'", anchor=lhs)
     var_ptr = compile.get_compiled(var, scope)
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_ptr)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=var_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('allocate', ['compile'], ['count'])
 def compile_allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -157,9 +157,9 @@ def compile_allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expressi
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     module = compile.get_compile_construct(scope, '__MODULE__')
     allocated_ptr = builder.call(module.get_global('malloc'), [count_value])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=allocated_ptr)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=allocated_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('deallocate', ['compile', 'pointer'])
 def compile_deallocate(lhs: Expression, scope: Scope) -> Expression:
@@ -176,9 +176,9 @@ def compile_reallocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expres
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     module = compile.get_compile_construct(scope, '__MODULE__')
     res_ptr = builder.call(module.get_global('realloc'), [ptr_value, new_count_value])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('+', ['compile', 'pointer'], ['offset'])
 def compile_pointer_advance(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -186,9 +186,9 @@ def compile_pointer_advance(lhs: Expression, rhs: Expression, scope: Scope) -> E
     offset_value = compile.get_compiled(rhs, scope)
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res_ptr = builder.gep(ptr_value, [offset_value])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('-', ['compile', 'pointer'], ['offset'])
 def compile_pointer_retreat(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
@@ -196,6 +196,6 @@ def compile_pointer_retreat(lhs: Expression, rhs: Expression, scope: Scope) -> E
     offset_value = compile.get_compiled(rhs, scope)
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     res_ptr = builder.gep(ptr_value, [builder.neg(offset_value)])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res_ptr)
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
-    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compile_prop)
+    return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)

@@ -23,7 +23,7 @@ _ compile machine_name.print;
 		"Hello, " + "World!" print;
 		0;
 	};
-) compile import(hello_printer);
+) compile import(print_hello);
 
 0 do (
 	0 print_hello;

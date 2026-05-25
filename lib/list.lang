@@ -12,4 +12,4 @@
 			list_updated.list.at(idx - 1);
 		};
 	};
-) compile import("lib/list.lang");
+) compile import(at);

@@ -45,35 +45,15 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     prop = prop.copy()
     prop.compound_properties += additional_compound
 
-    # Rank results in increasing weight exponentially
-    property_values: dict[str, int] = {}
-    weight = 1
-    for p in expr.properties:
-        property_values[p.property.s] = weight
-        weight *= 2
     # Everything in context gets max weight
     context = get_context(scope)
-    for p in context:
-        property_values[p.property.s] = weight
 
     matches = scope.defn_lookup_recursive(prop.property.s)
-    matches = [m for m in matches if all(p.property.s in property_values for p in m.properties)] # filter for matches that have all the other properties
-    # TODO filter out compound properties to those that match the properties of expr
-    if len(matches) == 0:
-        pwarning(f"Could not resolve property `{prop}` on `{expr}`", anchor=expr)
-        return expr
-    
-    # rank matches by the sum of the weights of their properties
-    match_weights = [(sum(property_values.get(p.property.s, 0) for p in m.properties), m) for m in matches]
-    match_weights.sort(reverse=True)
-
-    if len(match_weights) == 1:
-        best = match_weights[0]
-    else:
-        best, next_best, *_ = match_weights
-        if best[0] == next_best[0]:
-            perror(f"multiple matches found for property {prop} in {expr}", anchor=prop)
-    _, best_match = best
+    score, best_match = matches.lookup(expr.properties, context)
+    if score < 0:
+        return pwarning(f"Could not resolve property `{prop}` on `{expr}`", anchor=expr)
+    elif best_match is None:
+        return pwarning(f"Multiple matches found for property `{prop}` on `{expr}`", anchor=expr)
     # print(expr, '>>>', best_match)
     
     # forward resolve

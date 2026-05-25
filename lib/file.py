@@ -76,8 +76,8 @@ def compile_open_file(lhs: Expression, scope: Scope) -> Expression:
     filename = compile.get_compiled(lhs, scope)
     rw = compile.create_string('rw', scope)
     file_ptr = builder.call(fopen, [filename, rw], 'fopen_tmp')
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=file_ptr)
-    return lhs.discard_property('string').replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=file_ptr)
+    return lhs.discard_property('string').replace_property('compiled_result', compiled_prop)
 
 @register_definition('close', ['compile', 'file'])
 def compile_close_file(lhs: Expression, scope: Scope) -> Expression:
@@ -103,8 +103,8 @@ def compile_size_file(lhs: Expression, scope: Scope) -> Expression:
     size = builder.sext(size, ir.IntType(64), 'size_sext')
     # Restore original position
     builder.call(fseek, [file_ptr, current_pos, ir.Constant(ir.IntType(32), 0)])
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=size)
-    return lhs.replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=size)
+    return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('read', ['compile', 'file'])
 def compile_read_file(lhs: Expression, scope: Scope) -> Expression:
@@ -120,8 +120,8 @@ def compile_read_file(lhs: Expression, scope: Scope) -> Expression:
     file_ptr = compile.get_compiled(lhs, scope)
     bytes_read = builder.call(fread, [buffer_ptr, ir.Constant(ir.IntType(64), 1), buffer_size, file_ptr], 'bytes_read')
     string_prop = Property(lhs.symbol.create_renamed('string'))
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=buffer_ptr)
-    return lhs.replace_property('file', string_prop).replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=buffer_ptr)
+    return lhs.replace_property('file', string_prop).replace_property('compiled_result', compiled_prop)
 
 @register_definition('write', ['compile', 'file'], ['string_to_write'])
 def compile_write_file(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:

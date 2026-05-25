@@ -1,8 +1,6 @@
 "lib/print.py" python definition import;
 "lib/list.py" python definition import;
 "lib/structure.py" python definition import;
-"lib/compile.py" python definition import;
-
 
 _ struct structure(
 	foo integer,
@@ -17,23 +15,3 @@ y assign[ _ list[1,2,3,4]];
 y.at(0).print;
 y.at[1].print;
 y.print;
-
-0 do {
-	_ struct1 structure(
-		bin integer,
-		baz integer,
-	);
-	_ struct2 structure(
-		foo integer,
-		bar struct1,
-	);
-	z assign[_ struct2(
-		12;
-		_ struct1(
-			11,
-			10,
-		);
-	)];
-	z.bar.baz.print;
-	0;
-} compile_to("struct_print10.out");

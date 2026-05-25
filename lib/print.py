@@ -50,8 +50,8 @@ def compile_print_integer(lhs: Expression, scope: Scope) -> Expression:
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     lhs_val = compile.get_compiled(lhs, scope)
     print_res = builder.call(compile.get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
-    return lhs.replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
+    return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('print', ['compile', 'string'])
 def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
@@ -59,8 +59,8 @@ def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
     lhs_val = compile.get_compiled(lhs, scope)
     puts = compile.get_compile_construct(scope, '__MODULE__').get_global('puts')
     print_res = builder.call(puts, [lhs_val], 'print_tmp')
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
-    return lhs.replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
+    return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('print', ['compile', 'pointer'])
 def compile_print_pointer(lhs: Expression, scope: Scope) -> Expression:
@@ -69,5 +69,5 @@ def compile_print_pointer(lhs: Expression, scope: Scope) -> Expression:
     lhs_val = compile.get_compiled(lhs, scope)
     lhs_val_int = builder.ptrtoint(lhs_val, ir.IntType(64))
     print_res = builder.call(compile.get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val_int], 'print_tmp')
-    compile_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
-    return lhs.replace_property('compiled_result', compile_prop)
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
+    return lhs.replace_property('compiled_result', compiled_prop)

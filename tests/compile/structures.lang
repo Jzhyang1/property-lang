@@ -1,0 +1,31 @@
+"lib/print.py" python definition import;
+"lib/list.py" python definition import;
+"lib/structure.py" python definition import;
+"lib/compile.py" python definition import;
+
+0 do {
+	_ struct1 structure(
+		bin integer,
+		baz integer,
+	);
+	_ struct2 structure(
+		foo integer,
+		bar struct1,
+	);
+
+	0 structures definition{
+		z assign[_ struct2(
+			12;
+			_ struct1(
+				11,
+				10,
+			);
+		)];
+		z.bar.baz;
+		/* TODO we can't print here directly because 
+			our `compile import` pattern does not resolve
+			dependencies properly in linking */
+	};
+} compile import(structures);
+
+0 structures.print;

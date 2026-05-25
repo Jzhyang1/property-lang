@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Callable, overload
 
 special_symbols = set('~@#$%^&*/-+=<>|?:')
 start_comment = '/*'
@@ -25,6 +25,15 @@ separators = {
 
 immediate_resolve = ['!']
 resolve = ['.'] + immediate_resolve
+
+# Declare the signatures
+def to_bytes(s: Any) -> bytes:
+    if isinstance(s, str):
+        return s.encode('utf-8')
+    elif isinstance(s, int):
+        return s.to_bytes(8, byteorder='little', signed=True)
+    else:
+        raise TypeError(f"Cannot convert type {type(s)} to bytes")
 
 class Token:
     def __init__(self, s: str, file: str, row: int, col: int, token_type: int):
@@ -59,7 +68,10 @@ class Property:
     def copy(self):
         return Property(self.property, self.is_compound, self.compound_properties, self.is_association, self.associated_value, self.start_char)
 
-class Expression:
+class PropertyContainerProtocol:    # Protocol
+    properties: list[Property]
+
+class Expression(PropertyContainerProtocol):
     def __init__(self, symbol: Token, properties: list['Property']):
         self.symbol = symbol
         self.properties = properties
@@ -132,7 +144,7 @@ class Expression:
             return self, None
         return Expression(self.symbol, properties[:i+1]), properties[i+1:]
 
-class Definition:
+class Definition(PropertyContainerProtocol):
     trace_stack: list[tuple[Expression, list[Expression], 'Scope', Property]] = []
     def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
                  body: list[Expression], scope: 'Scope|None' = None):
@@ -163,10 +175,49 @@ class LambdaDefinition(Definition):
         return res
 
 # Scoping
+class PropertiesLookup[T: PropertyContainerProtocol]:
+    def __init__(self, exprs: list[T] = [], parent_lookup: 'PropertiesLookup|None' = None):
+        self.exprs = exprs
+        self.parent_lookup = parent_lookup
+    def __get_best_score(self, prop_scores: dict[str, int]) -> tuple[int, T|None]:
+        best_score, best = -1, None
+        for expr in self.exprs:
+            # TODO 1<<32 is a magic number that is meant to mean "all mismatches are disallowed"
+            score = sum(prop_scores.get(prop.property.s, -(1<<32)) for prop in expr.properties)
+            if score > best_score:
+                best_score, best = score, expr
+        if self.parent_lookup is not None:
+            parent_score, parent_best = self.parent_lookup.__get_best_score(prop_scores)
+            if parent_score > best_score:
+                return parent_score, parent_best
+            elif parent_score == best_score:
+                return parent_score, None
+        return best_score, best
+            
+    def lookup(self, expr_props: list[Property], additional_props: list[Property]) -> tuple[int, T|None]:
+        '''returns (score, match), where there are no match options if score < 0'''
+        # Given lists of properties X and Y, find the expression Z in self.exprs that best matches X
+        # The "best match" for X and Y is:
+        # 1. Z matches as many properties in Y as possible
+        # 2. Z matches the last property in X; if none or multiple such Z exist, compare those to the next-to-last property in X, etc.
+        prop_scores = {}
+        for i, prop in enumerate(expr_props):
+            prop_scores[prop.property.s] = 1 << i
+        for i, prop in enumerate(additional_props):
+            prop_scores[prop.property.s] = 1 << len(expr_props)
+        score, best = self.__get_best_score(prop_scores)
+        return score, best
+    def list_all(self, existing: list[T]|None = None) -> list[T]:
+        existing = existing or []
+        existing.extend(self.exprs.copy())
+        if self.parent_lookup is not None:
+            self.parent_lookup.list_all(existing)
+        return existing
+
 class Scope:
     def __init__(self, 
-                 local_vars: None | dict[str, Expression] = None, local_defns: None | dict[str, list['Definition']] = None, 
-                 parent_scope: 'None | Scope' = None, is_global: bool=False):
+                 local_vars: None|dict[str, Expression] = None, local_defns: None|dict[str, list['Definition']] = None, 
+                 parent_scope: 'None|Scope' = None, is_global: bool=False):
         if local_vars is None: local_vars = {}
         if local_defns is None: local_defns = {}
         self.local_vars = local_vars
@@ -177,10 +228,12 @@ class Scope:
     def var_lookup(self, var_name: str) -> Expression | None:
         return self.local_vars[var_name] if var_name in self.local_vars else \
             self.parent.var_lookup(var_name) if self.parent is not None else None
-    def defn_lookup_recursive(self, var_name: str) -> list[Definition]:
+    def defn_lookup_recursive(self, var_name: str) -> PropertiesLookup[Definition]:
+        if var_name not in self.local_defns and self.parent is not None:
+            return self.parent.defn_lookup_recursive(var_name)
         local_found = self.local_defns[var_name] if var_name in self.local_defns else []
-        parent_found = self.parent.defn_lookup_recursive(var_name) if self.parent is not None else []
-        return local_found + parent_found
+        parent_lookup = self.parent.defn_lookup_recursive(var_name) if self.parent is not None else None
+        return PropertiesLookup(local_found, parent_lookup=parent_lookup)
     def force_var_lookup(self, var_name: str) -> Expression:
         var = self.var_lookup(var_name)
         assert var is not None
