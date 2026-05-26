@@ -28,7 +28,7 @@ def print_list(lhs: Expression) -> Expression:
 
 def _define_print_integer(module):
     # Create a global string for the format specifier
-    fmt_str = "%d\n\0"
+    fmt_str = "%ld\n\0"
     fmt_ty = ir.ArrayType(ir.IntType(8), len(fmt_str))
     fmt_str_global = ir.GlobalVariable(module, fmt_ty, name="fmt_str")
     fmt_str_global.linkage = 'internal'

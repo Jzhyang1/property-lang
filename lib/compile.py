@@ -1,13 +1,12 @@
-import ctypes
 from typing import Any, Callable, Collection
 from typing_extensions import Literal
 
 import llvmlite.ir as ir
 import llvmlite.binding as llvm
 
-from constants import Definition, Scope, PropertyContainerProtocol, PropertiesLookup, Expression, Property, Token, to_bytes
+from constants import Definition, Scope, PropertyContainerProtocol, PropertiesLookup, Expression, Property, Token
 import constants
-from definitions import register_definition, define_apply, expression_to_associated_value, associated_value_to_expression, get_context, update_context
+from definitions import register_definition, define_apply, get_context, update_context
 from errors import perror, pwarning
 
 llvm.initialize_native_target()
@@ -116,49 +115,10 @@ def size_of_type(type: ir.Type) -> int:
         perror(f"Cannot determine size of function type '{type}'")
     raise perror(f"Unsupported LLVM type for size calculation: '{type}'")
 
-CtypeOptions = type[ctypes._SimpleCData] | type[ctypes._Pointer] | type[ctypes.Structure]
-def get_ctypes_equivalent(llvm_type: ir.Type) -> CtypeOptions:
-    """
-    Returns the ctypes equivalent of a given llvmlite.ir.Type.
-    """
-    # Integer Types
-    if isinstance(llvm_type, ir.IntType):
-        if llvm_type.width == 64:
-            return ctypes.c_int64
-        elif llvm_type.width == 8:
-            return ctypes.c_char
-    # Void Types
-    elif isinstance(llvm_type, ir.VoidType):
-        return ctypes.c_void_p
-    # Pointer Types
-    elif isinstance(llvm_type, ir.PointerType):
-        # void* for opaque or generic pointers
-        pointee: ir.Type = llvm_type.pointee # type: ignore
-        if isinstance(pointee, ir.VoidType):
-            return ctypes.c_void_p
-        # recursively find the pointer base type
-        return ctypes.POINTER(get_ctypes_equivalent(pointee))
-    # Array Types
-    elif isinstance(llvm_type, ir.ArrayType):
-        element_type = get_ctypes_equivalent(llvm_type.element)
-        return element_type * llvm_type.count
-    # Structure Types
-    elif isinstance(llvm_type, (ir.LiteralStructType, ir.IdentifiedStructType)):
-        assert llvm_type.elements is not None
-        fields = [get_ctypes_equivalent(elem) for elem in llvm_type.elements]
-        
-        # Define a dynamic ctypes Structure
-        class LLVMStruct(ctypes.Structure):
-            _fields_ = [(f"f{i}", t) for i, t in enumerate(fields)]
-        return LLVMStruct
-    raise NotImplementedError(f"Cannot map LLVM type {type(llvm_type)} to ctypes")
-
-
 class CompiledUserDefinition(Definition):
     # To be stored as a "compile" definition on the func name
     @define_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        print('??evaluating', lhs, '(', args, ')', lhs.symbol.file, lhs.symbol.row, lhs.symbol.col)
         args = [lhs] + args
         if len(args) < len(self.params):
             perror(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {lhs}, {args})", anchor=lhs)
@@ -177,40 +137,6 @@ class CompiledUserDefinition(Definition):
         ret_prop = Property(lhs.symbol.create_renamed('integer'), is_association=True) # TODO better type handling
         return lhs.create_with_property(ret_prop).replace_property('compiled_result', compiled_prop)
     
-
-class CompiledInterpretableUserDefinition(Definition):
-    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], scope: Scope|None, llvm_func: ir.Function):
-        super().__init__(prop_symb, properties, is_compound, params, [], scope)
-        self.llvm_func = llvm_func
-        self.true_param_types = [get_ctypes_equivalent(param.type) for param in llvm_func.args]
-        self.llvm_jit_func = None
-        self.cfunc = None
-
-    def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
-        # called a compiled function in interpreter
-        # execute the function in llvm as JIT
-        if self.cfunc is None:
-            print(self.llvm_func.module)
-            llvm_mod = llvm.parse_assembly(str(self.llvm_func.module))
-            llvm_mod.verify()
-            self.llvm_jit_func = llvm.create_mcjit_compiler(llvm_mod, llvm.Target.from_default_triple().create_target_machine())
-            self.llvm_jit_func.finalize_object()
-            faddr = self.llvm_jit_func.get_function_address(self.llvm_func.name)
-            self.cfunc = ctypes.CFUNCTYPE(ctypes.c_int64, *self.true_param_types) (faddr) # TODO we only return integers for now
-        arg0_val = expression_to_associated_value(expr)
-        all_args = [expression_to_associated_value(arg) for arg in args]
-        arg_vals, vararg_vals = all_args[:len(self.params)], all_args[len(self.params):]
-        # Construct varargs heterogenous list as a ctypes byte array of enough size to hold metadata and arguments
-        varargs_bytes = bytearray()
-        for vararg, vararg_val in zip(args[len(self.params):], vararg_vals):
-            size = size_of_type(get_type(vararg, scope))
-            varargs_bytes.extend(to_bytes(size)) # metadata: size of the argument
-            varargs_bytes.extend(to_bytes(vararg_val)) # the argument value itself
-        varargs_bytes.extend(to_bytes(0)) # null terminator
-        varargs_ptr = (ctypes.c_char * len(varargs_bytes)).from_buffer(varargs_bytes)
-        res = self.cfunc(arg0_val, *arg_vals, varargs_ptr)
-        return associated_value_to_expression(expr.symbol, res)
-
 
 # Builtin types
 
@@ -481,9 +407,8 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     compile_prop = Property(lhs.symbol.create_renamed('compile'))
     func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), arg_types), name=func_name)
     defn = CompiledUserDefinition(func_name, [compile_prop] + lhs.properties, is_compound=True, params=params, body=[], scope=scope)
-    idefn = CompiledInterpretableUserDefinition(func_name, lhs.properties, is_compound=True, params=params, scope=scope, llvm_func=func)
     block = func.append_basic_block(name=func_name)
-    scope.local_defns.setdefault(func_name, []).extend([defn, idefn])
+    scope.local_defns.setdefault(func_name, []).append(defn)
 
     compile_scope = Scope(parent_scope=scope)
     builder = ir.IRBuilder(block)
@@ -557,7 +482,7 @@ def compile_list_from_pointer(lhs: Expression, scope: Scope, prop: Property) -> 
     return lhs.replace_property('pointer', prop).replace_property('compiled_result', compiled_prop)
 
 # TODO make the compilation imports/linking more explicit
-imported_modules = {}
+imported_modules: dict[str, tuple[ir.Module, Collection[ir.Function]]] = {}
 
 # Create all cstdlib function declarations
 def _cstdlib_module():
@@ -625,7 +550,8 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     compile_scope = Scope(parent_scope=scope)
     update_context(Expression(lhs.symbol.create_renamed('__CONTEXT__'), [Property(lhs.symbol.create_renamed('compile'))]), compile_scope)
 
-    func = ir.Function(module, ir.FunctionType(ir.IntType(64), []), name=name)
+    func_ty = ir.FunctionType(ir.IntType(64), [])
+    func = ir.Function(module, func_ty, name=name)
     builder = ir.IRBuilder(func.append_basic_block(name="entry"))
     set_compile_construct(lhs.symbol, compile_scope, '__MODULE__', module)
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
@@ -640,6 +566,16 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
 
     # Output module 
     imported_modules[name] = _imported_signature(module, inherited)
+    # Export constructor (everything that is not a definition)
+    ctor_struct_ty = ir.LiteralStructType([ir.IntType(32), func.type, ir.IntType(8).as_pointer()])
+
+    ctors_array_ty = ir.ArrayType(ctor_struct_ty, 1)
+    ctor_struct = ir.Constant.literal_struct([ir.Constant(ir.IntType(32), 65535), func, ir.Constant(ir.IntType(8).as_pointer(), None)])
+    ctors_init = ir.Constant(ctors_array_ty, [ctor_struct])
+    global_ctors = ir.GlobalVariable(module, ctors_array_ty, name="llvm.global_ctors")
+
+    global_ctors.linkage = "appending"
+    global_ctors.initializer = ctors_init # type: ignore
     # Export global definitions as well
     for arg in args:
         found_all = compile_scope.defn_lookup_recursive(arg.symbol.s)
@@ -648,7 +584,8 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
             return pwarning(f"Cannot find definition for '{arg.symbol.s}' to import", anchor=arg)
         for defn in found:
             scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
-    return lhs
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=module)
+    return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('compile_to', [], ['file_dest'])
 def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:

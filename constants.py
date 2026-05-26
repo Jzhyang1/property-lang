@@ -26,15 +26,6 @@ separators = {
 immediate_resolve = ['!']
 resolve = ['.'] + immediate_resolve
 
-# Declare the signatures
-def to_bytes(s: Any) -> bytes:
-    if isinstance(s, str):
-        return s.encode('utf-8')
-    elif isinstance(s, int):
-        return s.to_bytes(8, byteorder='little', signed=True)
-    else:
-        raise TypeError(f"Cannot convert type {type(s)} to bytes")
-
 class Token:
     def __init__(self, s: str, file: str, row: int, col: int, token_type: int):
         self.s = s

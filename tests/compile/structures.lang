@@ -2,6 +2,7 @@
 "lib/list.py" python definition import;
 "lib/structure.py" python definition import;
 "lib/compile.py" python definition import;
+"lib/jitcompile.py" python definition import;
 
 0 do {
 	_ struct1 structure(
@@ -21,11 +22,8 @@
 				10,
 			);
 		)];
-		z.bar.baz;
-		/* TODO we can't print here directly because 
-			our `compile import` pattern does not resolve
-			dependencies properly in linking */
+		z.bar.baz.print;
 	};
-} compile import(structures);
+} jit compile import(structures);
 
 0 structures.print;
