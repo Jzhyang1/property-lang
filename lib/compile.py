@@ -503,6 +503,7 @@ def _cstdlib_module():
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.IntType(32)]), name="fseek")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))], var_arg=True), name="printf")
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8))]), name="puts")
+    ir.Function(module, ir.FunctionType(ir.VoidType(), [ir.PointerType(ir.IntType(8))]), name="fflush")
     # string
     ir.Function(module, ir.FunctionType(ir.IntType(32), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcmp')
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcpy')

@@ -42,23 +42,34 @@ def _define_print_integer(module):
     fmt_arg = builder.bitcast(fmt_str_global, ir.PointerType(ir.IntType(8)))
     builder.call(module.get_global('printf'), [fmt_arg, print_integer.args[0]])
     builder.ret(print_integer.args[0])
+
+def _define_flush_all(module):
+    flush = ir.Function(module, ir.FunctionType(ir.VoidType(), []), name="flush")
+    block = flush.append_basic_block(name="entry")
+    builder = ir.IRBuilder(block)
+    builder.call(module.get_global('fflush'), [ir.Constant(ir.PointerType(ir.IntType(8)), None)])
+    builder.ret_void()
     
 compile.add_stdlib_definition(_define_print_integer)
+compile.add_stdlib_definition(_define_flush_all)
 
 @register_definition('print', ['compile', 'integer'])
 def compile_print_integer(lhs: Expression, scope: Scope) -> Expression:
     builder = compile.get_compile_construct(scope, '__BUILDER__')
+    module = compile.get_compile_construct(scope, '__MODULE__')
     lhs_val = compile.get_compiled(lhs, scope)
-    print_res = builder.call(compile.get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val], 'print_tmp')
+    builder.call(module.get_global('print_integer'), [lhs_val], 'print_tmp')
+    builder.call(module.get_global('flush'), [])
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
     return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('print', ['compile', 'string'])
 def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
     builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
+    module = compile.get_compile_construct(scope, '__MODULE__')
     lhs_val = compile.get_compiled(lhs, scope)
-    puts = compile.get_compile_construct(scope, '__MODULE__').get_global('puts')
-    print_res = builder.call(puts, [lhs_val], 'print_tmp')
+    builder.call(module.get_global('puts'), [lhs_val], 'print_tmp')
+    builder.call(module.get_global('flush'), [])
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
     return lhs.replace_property('compiled_result', compiled_prop)
 
@@ -66,8 +77,10 @@ def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
 def compile_print_pointer(lhs: Expression, scope: Scope) -> Expression:
     # For now we just print the pointer as an integer, but ideally we would want to print hex
     builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
+    module = compile.get_compile_construct(scope, '__MODULE__')
     lhs_val = compile.get_compiled(lhs, scope)
     lhs_val_int = builder.ptrtoint(lhs_val, ir.IntType(64))
-    print_res = builder.call(compile.get_compile_construct(scope, '__MODULE__').get_global('print_integer'), [lhs_val_int], 'print_tmp')
+    builder.call(module.get_global('print_integer'), [lhs_val_int], 'print_tmp')
+    builder.call(module.get_global('flush'), [])
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
     return lhs.replace_property('compiled_result', compiled_prop)

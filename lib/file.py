@@ -18,7 +18,7 @@ def open_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     string_prop = lhs.force_get_property('string')
     file_prop.is_association = True
-    file_prop.associated_value = open(string_prop.associated_value) # type: ignore
+    file_prop.associated_value = open(string_prop.associated_value, "w+") # type: ignore
     return lhs.discard_property('string')
 
 @register_definition('close', ['file'])
@@ -47,8 +47,10 @@ def read_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
         return pwarning(f"cannot read from file {file_prop} which is not open", anchor=lhs)
+    file_prop.associated_value.seek(0)  # Ensure we're at the start of the file
+    read = file_prop.associated_value.read()
     return Expression(lhs.symbol.create_renamed('read'), [
-        Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=file_prop.associated_value.read())
+        Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=read)
     ])
 
 

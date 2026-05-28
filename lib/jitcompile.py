@@ -53,11 +53,12 @@ class GlobalJIT:
         self.register_cstdlib_symbols()
 
     def add_module(self, module: ir.Module):
+        if module.name in self.modules:
+            pwarning(f"Module with name {module.name} already exists in JIT, skipping", anchor=None)
+            return
         mod = llvm.parse_assembly(str(module))
         mod.verify()
-        if mod.name in self.modules:
-            pwarning(f"Module with name {mod.name} already exists in JIT, overwriting", anchor=None)
-        self.modules[mod.name] = mod
+        self.modules[module.name] = mod
         self.engine.add_module(mod)
         self.engine.finalize_object()
         self.engine.run_static_constructors()

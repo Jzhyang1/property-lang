@@ -1,0 +1,15 @@
+"lib/system.py" python definition import;
+"lib/string.py" python definition import;
+"lib/print.py" python definition import;
+
+__test_fout file declare;
+_ system variable("TESTING") == "TRUE" .then{
+	"testing" print;
+	__test_fstdout assign[_ system stdout];
+	__test_fout assign["test.out" file open];
+	_ system stdout assign[__test_fout];
+};
+
+_ test output_assert(output string) definition{
+	__test_fout.read == output .assert;
+};
