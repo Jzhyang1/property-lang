@@ -12,10 +12,11 @@ global_definitions: dict[str, list[Definition]] = {}
 
 def make_global_vars(file: str) -> dict[str, Expression]:
     file_token = Token('__IMPORT_PATH__', file, 0, 0, token_types['alnum'])
+    string_token = Token('string', file, 0, 0, token_types['alnum'])
     global_vars = {
         '__IMPORT_PATH__': Expression(
             file_token,
-            [Property(file_token, is_association=True, associated_value=file)]
+            [Property(string_token, is_association=True, associated_value=file)]
         )
     }
     return global_vars

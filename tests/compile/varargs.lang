@@ -2,6 +2,8 @@
 "lib/print.py" python definition import;
 "lib/list.py" python definition import;
 "lib/list.lang" import(at);
+"lib/jitcompile.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
 0 do (
 	0 second definition{
@@ -9,4 +11,6 @@
 	};
 
 	0 second[18, 9, 4, 2].print;
-) compile_to("print9.out");
+) jit compile import();
+
+_ test output_assert[__IMPORT_PATH__, "9\n"];

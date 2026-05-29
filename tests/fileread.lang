@@ -1,9 +1,12 @@
 "lib/print.py" python definition import;
 "lib/file.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
-y assign["tests/fileread.lang" file open];
+y assign["tests/example.txt" file open];
 
 x assign[y.read];
 x.print;
 
 y.close;
+
+_ test output_assert[__IMPORT_PATH__, "Austin, Texas\n"];

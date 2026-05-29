@@ -1,6 +1,8 @@
 "lib/pointer.py" python definition import;
 "lib/compile.py" python definition import;
 "lib/print.py" python definition import;
+"lib/jitcompile.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
 global_value assign[1];
 
@@ -28,4 +30,6 @@ global_pointer.dereference.print;
 
 	local_pointer1.dereference.print;
 	local_pointer2.dereference.print;
-) compile_to("print34.out");
+) jit compile import();
+
+_ test output_assert[__IMPORT_PATH__, "2\n3\n4\n"];

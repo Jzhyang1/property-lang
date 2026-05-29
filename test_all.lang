@@ -1,0 +1,8 @@
+"lib/system.py" python definition import;
+"lib/list.py" python definition import;
+
+_ system path("tests").list(recursive).each(
+	path run definition{
+		path.import;
+	};
+);

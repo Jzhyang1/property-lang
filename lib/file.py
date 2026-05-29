@@ -1,4 +1,5 @@
 import io
+import os
 
 from constants import Definition, Scope, Expression, Property, Token
 from errors import pwarning
@@ -13,12 +14,22 @@ compile = definitions.import_module(__file__, 'compile.py')
 def file_property(lhs: Expression) -> Expression:
     return lhs.create_with_property(Property(lhs.symbol.create_renamed('file')))
 
+@register_definition('copy', ['file'])
+def assign_file(lhs: Expression) -> Expression:
+    # We use os.dup to ensure we get a copy of the file descriptor
+    file_prop = lhs.force_get_property('file')
+    if not file_prop.is_association:
+        return pwarning(f"cannot copy file {file_prop} which is not open", anchor=lhs)
+    new_file = io.TextIOWrapper(io.FileIO(os.dup(file_prop.associated_value.fileno()), "a+"), write_through=True)
+    new_file_prop = Property(lhs.symbol.create_renamed('file'), is_association=True, associated_value=new_file)
+    return lhs.replace_property('file', new_file_prop)
+
 @register_definition('open', ['string', 'file'])
 def open_file(lhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     string_prop = lhs.force_get_property('string')
     file_prop.is_association = True
-    file_prop.associated_value = open(string_prop.associated_value, "w+") # type: ignore
+    file_prop.associated_value = open(string_prop.associated_value, "a+") # type: ignore
     return lhs.discard_property('string')
 
 @register_definition('close', ['file'])
@@ -61,12 +72,23 @@ def write_file(lhs: Expression, rhs: Expression) -> Expression:
         return pwarning(f"cannot write to file {file_prop} which is not open", anchor=lhs)
     if (rval := rhs.try_get_property('string')) is None:
         return pwarning(f"write requires a string property, got {rhs}", anchor=rhs)
-    write_str: str = rval.associated_value # type: ignore
+    write_str: str = rval.associated_value
     file_prop.associated_value.write(write_str)
     return Expression(lhs.symbol.create_renamed('write'), [
         Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=write_str)
     ])
 
+@register_definition('clear', ['file'])
+def clear_file(lhs: Expression) -> Expression:
+    file_prop = lhs.force_get_property('file')
+    if not file_prop.is_association:
+        return pwarning(f"cannot clear file {file_prop} which is not open", anchor=lhs)
+    try:
+        file_prop.associated_value.seek(0)
+        file_prop.associated_value.truncate()  # Clear the file contents
+    except Exception as e:
+        return pwarning(f"error while clearing file {file_prop}", anchor=lhs)
+    return lhs
 
 # Compilation
 

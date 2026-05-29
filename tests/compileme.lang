@@ -2,8 +2,8 @@
 "lib/string.py" python definition import;
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
-
-_ compile machine_name.print;
+"lib/jitcompile.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
 /* 7+5 expands into 7 +(5.). which
 	because of the `.` it is evaluated at compile-time
@@ -11,20 +11,22 @@ _ compile machine_name.print;
 0 do (
 	x assign[12];
 	x.print;
-) compile_to("print12.out");
+) jit compile import();
 
 /* 0 do (...) -> this returns 0 */
 0 do (
 	1 then{2+3 print.}else{99 print.};
-) compile_to("print5.out");
+) jit compile import();
 
 0 do (
 	0 print_hello definition{
 		"Hello, " + "World!" print;
 		0;
 	};
-) compile import(print_hello);
+) jit compile import(print_hello);
 
 0 do (
 	0 print_hello;
-) compile_to("hello.out");
+) jit compile import();
+
+_ test output_assert[__IMPORT_PATH__, "12\n5\nHello, World!\n"];

@@ -1,12 +1,6 @@
-/* should print:
- *
- * 2
- * 4
- * 32
- */
- 
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
 base integer power(exp integer) definition{
 	half assign [ exp / 2 ];
@@ -20,3 +14,5 @@ base integer power(exp integer) definition{
 2 power(1).print;
 2 power(2).print;
 2 power(5).print;
+
+_ test output_assert[__IMPORT_PATH__, "2\n4\n32\n"];

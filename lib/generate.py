@@ -37,7 +37,7 @@ def generate_file(output_file: str, prompt: str) -> None:
         f.write(content)
 
 
-@register_definition('generate', ['python'], ['prompt', 'generate_signatures...'])
+@register_definition('generate', ['string', 'python'], ['prompt', 'generate_signatures...'])
 def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
     rhs, *args = args
     output_file, prompt = lhs.force_get_property('string'), rhs.force_get_property('string')
@@ -51,7 +51,7 @@ def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -
         with open(cache_file, 'r') as f:
             previous = f.read()
         if previous == prompt:
-            import_raw_python_file(lhs.symbol.file, output_file, imports, Scope())
+            import_raw_python_file(lhs.symbol.file, output_file, imports, scope)
             return lhs
     
     # We need to generate the output source from scratch

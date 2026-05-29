@@ -3,6 +3,7 @@
 "lib/structure.py" python definition import;
 "lib/compile.py" python definition import;
 "lib/jitcompile.py" python definition import;
+"lib/tester.lang" import(output_assert);
 
 0 do {
 	_ struct1 structure(
@@ -27,3 +28,5 @@
 } jit compile import(structures);
 
 0 structures.print;
+
+_ test output_assert[__IMPORT_PATH__, "10\n10\n"];
