@@ -6,5 +6,5 @@
 - Implement floats
 - Assembly properties (e.g. registers, operands)
 - Architecture and OS dependent properties
-- Automate tests
+- Negative properties (property removal via forward-slash property)
 - Heirarchial type resolution for compile

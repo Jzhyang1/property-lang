@@ -3,7 +3,8 @@
 "lib/print.py" python definition import;
 "lib/arithmetic.py" python definition import;
 "lib/jitcompile.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 /* 7+5 expands into 7 +(5.). which
 	because of the `.` it is evaluated at compile-time
@@ -29,4 +30,4 @@
 	0 print_hello;
 ) jit compile import();
 
-_ test output_assert[__IMPORT_PATH__, "12\n5\nHello, World!\n"];
+_ test output_assert["12\n5\nHello, World!\n"];

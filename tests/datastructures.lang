@@ -1,7 +1,8 @@
 "lib/print.py" python definition import;
 "lib/list.py" python definition import;
 "lib/structure.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 _ struct structure(
 	foo integer,
@@ -16,4 +17,4 @@ y assign[ _ list[1,2,3,4]];
 y.at(0).print;
 y.at[1].print;
 
-_ test output_assert[__IMPORT_PATH__, "12\n1\n2\n"];
+_ test output_assert["12\n1\n2\n"];

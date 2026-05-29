@@ -1,9 +1,10 @@
 "lib/arithmetic.py" python definition import;
 "lib/print.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 y assign(x integer logical_not.+(x assign(2);););
 x.print;
 y.print;
 
-_ test output_assert[__IMPORT_PATH__, "2\n3\n"];
+_ test output_assert["2\n3\n"];

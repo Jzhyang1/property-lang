@@ -61,7 +61,7 @@ class GlobalJIT:
         self.modules[module.name] = mod
         self.engine.add_module(mod)
         self.engine.finalize_object()
-        self.engine.run_static_constructors()
+        # self.engine.run_static_constructors()
 
     def register_cstdlib_symbols(self):
         libc = ctypes.CDLL(ctypes.util.find_library("c"), mode=ctypes.RTLD_GLOBAL)
@@ -73,6 +73,14 @@ class GlobalJIT:
         # Also load in all existing imported_modules
         for module, funcs in compile.imported_modules.values():
             self.add_module(module)
+
+    def find_llvm_func(self, llvm_func: ir.Function):
+        cfunc = global_jit.engine.get_function_address(llvm_func.name)
+        cfunc_ptr = ctypes.CFUNCTYPE(
+            llvm_to_ctypes(llvm_func.return_value.type), 
+            *[llvm_to_ctypes(param.type) for param in llvm_func.args]
+        )(cfunc)
+        return cfunc_ptr
 
 global_jit = GlobalJIT()
 
@@ -155,21 +163,16 @@ def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) ->
                 if prop.property == 'compile':
                     non_compile_properties = defn.properties[:i] + defn.properties[i+1:]
                     break
-            cfunc_lookup = global_jit.compiled_funcs.get(symb)
-            _, existing_cfunc = cfunc_lookup.lookup(non_compile_properties, []) if cfunc_lookup else (-1, None)
-            if existing_cfunc and len(existing_cfunc.properties) == len(non_compile_properties):
-                # TODO this may be a bit hacky if there are repeated properties, but we must do unordered comparison and this is the easiest
-                # Although there is no name mangling yet so the case of overriding a past definition is undefined behavior anyway
-                pwarning(f"JIT definition for '{symb}' with properties {non_compile_properties} already exists", anchor=arg)
-                continue
-            cfunc = global_jit.engine.get_function_address(symb)
+            # TODO check that we don't already have the function registered in global_jit
             llvm_func: ir.Function = module.get_global(symb)
-            # TODO return non-int
-            cfunc_ptr = ctypes.CFUNCTYPE(ctypes.c_int64, *[llvm_to_ctypes(param.type) for param in llvm_func.args])(cfunc)
+            cfunc_ptr = global_jit.find_llvm_func(llvm_func)
             jit_func = JITFunction(cfunc_ptr, non_compile_properties)
             global_jit.compiled_funcs.setdefault(symb, PropertiesLookup()).exprs.append(jit_func)
             
             # Create CompiledInterpretableUserDefinition
             idefn = CompiledInterpretableUserDefinition(symb, non_compile_properties, defn.is_compound, defn.params, defn.scope, llvm_func, cfunc_ptr)
             scope.local_defns.setdefault(symb, []).append(idefn)
+    # Run the module once
+    llvm_main: ir.Function = module.get_global(expr.symbol.s)
+    global_jit.find_llvm_func(llvm_main)()
     return expr

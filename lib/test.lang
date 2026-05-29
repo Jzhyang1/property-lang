@@ -1,0 +1,27 @@
+"lib/system.py" python definition import;
+"lib/string.py" python definition import;
+"lib/file.py" python definition import;
+
+__test_fstdout file declare;
+__test_fout file declare;
+_ test begin(source_path string) definition{
+	_ system variable("TESTING") == "TRUE" .then{
+		_ system stdout.write[source_path];
+		_ system stdout.write[" ......\t"];
+		__test_fstdout assign[_ system stdout.copy];
+		__test_fout assign["test.out" file open];
+		__test_fout.clear;
+		_ system stdout assign[__test_fout];
+	};
+};
+
+_ test output_assert(output string) definition{
+	_ system variable("TESTING") == "TRUE" .then{
+		_ system stdout assign[__test_fstdout];
+		__test_fout.read == output .then{
+			_ system stdout.write("pass\n");
+		}else{
+			_ system stdout.write("fail\n");
+		};
+	};
+};

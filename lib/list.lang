@@ -1,4 +1,5 @@
 "lib/pointer.py" python definition import;
+"lib/jitcompile.py" python definition import;
 
 0 do (
 	list compile list at(idx integer) definition{
@@ -12,4 +13,4 @@
 			list_updated.list.at(idx - 1);
 		};
 	};
-) compile import(at);
+) jit compile import(at);

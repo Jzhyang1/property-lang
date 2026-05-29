@@ -1,8 +1,11 @@
 "lib/system.py" python definition import;
 "lib/list.py" python definition import;
+"lib/string.py" python definition import;
 
 _ system path("tests").list(recursive).each(
 	path run definition{
-		path.import;
+		path.split["."].at[1] == "lang" .then{
+			path.run;
+		};
 	};
 );

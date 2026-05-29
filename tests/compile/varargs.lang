@@ -3,7 +3,8 @@
 "lib/list.py" python definition import;
 "lib/list.lang" import(at);
 "lib/jitcompile.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 0 do (
 	0 second definition{
@@ -13,4 +14,4 @@
 	0 second[18, 9, 4, 2].print;
 ) jit compile import();
 
-_ test output_assert[__IMPORT_PATH__, "9\n"];
+_ test output_assert["9\n"];

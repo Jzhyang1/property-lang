@@ -26,7 +26,7 @@ def expression_to_associated_value(expr: Expression) -> int | str | list:
         return ival.associated_value
     elif (sval := expr.try_get_property('string')) is not None:
         return sval.associated_value
-    elif (lval := expr.try_get_property('list')) is not None:
+    elif (lval := expr.try_get_property('list')) is not None and lval.associated_value is not None:
         return [expression_to_associated_value(e) for e in lval.associated_value]
     else:
         perror(f"unable to convert {expr} to associated value", anchor=expr)
@@ -236,6 +236,14 @@ def find_import_file(path_anchor: str, path: str):
         return path_library
     else:
         perror(f'unable to resolve path {path}')
+
+@register_definition('run', ['string'])
+def run(lhs: Expression, scope: Scope) -> Expression:
+    path = lhs.force_get_property('string')
+    path_str = find_import_file(lhs.symbol.file, path.associated_value)
+    from main import run_file
+    run_file(path_str)
+    return lhs
 
 imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to avoid duplicate imports
 @register_definition('import', ['string'], ['import_signatures...'])

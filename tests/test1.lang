@@ -1,7 +1,8 @@
 "lib/arithmetic.py" python definition import;
 "lib/print.py" python definition import;
 "lib/list.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 /* non-alnum operators are implicitly compound with 
  * the next non-operator token, in this case we get:
@@ -17,4 +18,4 @@ y assign[ z.at(1). < 4 ];
 y.print;
 z.at(0).print;
 
-_ test output_assert[__IMPORT_PATH__, "55\n0\n3\n"];
+_ test output_assert["55\n0\n3\n"];

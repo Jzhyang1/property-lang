@@ -531,6 +531,16 @@ def inherit_declarations(dst:ir.Module):
             inherited.add(added)
         # TODO Also add declarations for when we later want to link global variables
     return inherited
+    
+# TODO this is unused
+def register_constructor(module: ir.Module, func: ir.Function):
+    ctor_struct_ty = ir.LiteralStructType([ir.IntType(32), func.type, ir.IntType(8).as_pointer()])
+    ctors_array_ty = ir.ArrayType(ctor_struct_ty, 1)
+    ctor_struct = ir.Constant.literal_struct([ir.Constant(ir.IntType(32), 65535), func, ir.Constant(ir.IntType(8).as_pointer(), None)])
+    ctors_init = ir.Constant(ctors_array_ty, [ctor_struct])
+    global_ctors = ir.GlobalVariable(module, ctors_array_ty, name="llvm.global_ctors")
+    global_ctors.linkage = "appending"
+    global_ctors.initializer = ctors_init # type: ignore
 
 anonymous_module_num = 0
 @register_definition('import', ['compile'], ['signatures...'])
@@ -567,16 +577,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
 
     # Output module 
     imported_modules[name] = _imported_signature(module, inherited)
-    # Export constructor (everything that is not a definition)
-    ctor_struct_ty = ir.LiteralStructType([ir.IntType(32), func.type, ir.IntType(8).as_pointer()])
-
-    ctors_array_ty = ir.ArrayType(ctor_struct_ty, 1)
-    ctor_struct = ir.Constant.literal_struct([ir.Constant(ir.IntType(32), 65535), func, ir.Constant(ir.IntType(8).as_pointer(), None)])
-    ctors_init = ir.Constant(ctors_array_ty, [ctor_struct])
-    global_ctors = ir.GlobalVariable(module, ctors_array_ty, name="llvm.global_ctors")
-
-    global_ctors.linkage = "appending"
-    global_ctors.initializer = ctors_init # type: ignore
+    
     # Export global definitions as well
     for arg in args:
         found_all = compile_scope.defn_lookup_recursive(arg.symbol.s)
@@ -586,7 +587,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
         for defn in found:
             scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=module)
-    return lhs.replace_property('compiled_result', compiled_prop)
+    return Expression(lhs.symbol.create_renamed(name), lhs.properties).replace_property('compiled_result', compiled_prop)
 
 @register_definition('compile_to', [], ['file_dest'])
 def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:

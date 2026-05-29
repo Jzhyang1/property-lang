@@ -2,7 +2,8 @@
 "lib/compile.py" python definition import;
 "lib/print.py" python definition import;
 "lib/jitcompile.py" python definition import;
-"lib/tester.lang" import(output_assert);
+"lib/test.lang" import(begin, output_assert);
+_ test begin[__IMPORT_PATH__];
 
 global_value assign[1];
 
@@ -32,4 +33,4 @@ global_pointer.dereference.print;
 	local_pointer2.dereference.print;
 ) jit compile import();
 
-_ test output_assert[__IMPORT_PATH__, "2\n3\n4\n"];
+_ test output_assert["2\n3\n4\n"];

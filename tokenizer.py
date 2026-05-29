@@ -95,7 +95,7 @@ def build_tree_symbol(token: Token) -> Expression:
 def build_tree(tokens: list[Token], i=0, end_token=None) -> tuple[list[Expression], int]:
     # returns an array of tuples of (symbol, property array)
     # and property is of (is_compound, name, compound array)
-    if tokens[i] == end_token:
+    if i >= len(tokens) or tokens[i] == end_token:
         return [], i+1
     
     tree: list[Expression] = []
