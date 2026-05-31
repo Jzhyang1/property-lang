@@ -1,11 +1,18 @@
 "lib/system.py" python definition import;
 "lib/list.py" python definition import;
 "lib/string.py" python definition import;
+"lib/test.lang" import(pass_count, fail_count);
+"lib/print.py" python definition import;
 
 _ system path("tests").list(recursive).each(
-	path run definition{
+	path _ definition{
 		path.split["."].at[1] == "lang" .then{
 			path.run;
 		};
 	};
 );
+
+"Passing:".print;
+pass_count.print;
+"Failing:".print;
+fail_count.print;

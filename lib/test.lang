@@ -1,9 +1,12 @@
 "lib/system.py" python definition import;
 "lib/string.py" python definition import;
 "lib/file.py" python definition import;
+"lib/arithmetic.py" python definition import;
 
 __test_fstdout file declare;
 __test_fout file declare;
+pass_count assign[0];
+fail_count assign[0];
 _ test begin(source_path string) definition{
 	_ system variable("TESTING") == "TRUE" .then{
 		_ system stdout.write[source_path];
@@ -20,8 +23,10 @@ _ test output_assert(output string) definition{
 		_ system stdout assign[__test_fstdout];
 		__test_fout.read == output .then{
 			_ system stdout.write("pass\n");
+			pass_count assign[pass_count + 1];
 		}else{
 			_ system stdout.write("fail\n");
+			fail_count assign[fail_count + 1];
 		};
 	};
 };

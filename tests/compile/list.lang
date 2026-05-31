@@ -1,8 +1,10 @@
+
 "lib/list.py" python definition import;
-"lib/list.lang" import(at);
 "lib/print.py" python definition import;
+"lib/list.lang" import(at);
 "lib/jitcompile.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
+
 _ test begin[__IMPORT_PATH__];
 
 0 do (

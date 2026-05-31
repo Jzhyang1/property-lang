@@ -1,8 +1,8 @@
 import logging
 from typing import NoReturn
-from constants import Expression, Property, Token, token_types
+from constants import Expression, Property, Token, Definition, token_types
 
-AnchorType = Expression|Property|Token|None
+AnchorType = Expression|Property|Token|Definition|None
 logging.basicConfig(format='[%(levelname)s %(name)s] %(message)s', level=logging.INFO)
 
 def anchor_token(anchor: AnchorType) -> Token:
@@ -12,6 +12,8 @@ def anchor_token(anchor: AnchorType) -> Token:
         return anchor.symbol
     elif isinstance(anchor, Property):
         return anchor.property
+    elif isinstance(anchor, Definition):
+        return Token(anchor.prop_symb, anchor.def_file, anchor.def_row, 0, token_types['alnum'])
     else:
         return Token('<unknown>', '<unknown>', 0, 0, token_types['alnum'])
 def is_warning(anchor: AnchorType) -> bool:

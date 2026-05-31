@@ -8,7 +8,7 @@ import ctypes.util
 from constants import Definition, Expression, Property, Scope, PropertiesLookup, PropertyContainerProtocol
 from definitions import define_apply, expression_to_associated_value, associated_value_to_expression, register_definition
 import definitions
-from errors import pwarning
+from errors import perror, pwarning
 compile = definitions.import_module(__file__, 'compile.py')
 
 # Declare the signatures
@@ -130,11 +130,8 @@ class CompiledInterpretableUserDefinition(Definition):
         self.true_param_types = [llvm_to_ctypes(param.type) for param in llvm_func.args]
         self.cfunc = cfunc
     @define_apply
-    def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-        # # calls a compiled function in interpreter
-        # global_jit.engine.finalize_object()    # ensure the function is ready to be called
-        # global_jit.engine.run_static_constructors()    # ensure any static constructors are run
-        
+    def apply(self, lhs: Expression, args: list[Expression]) -> Expression:
+        # calls a compiled function in interpreter
         arg0_val = expression_to_associated_value(lhs)
         all_args = [expression_to_associated_value(arg) for arg in args]
         arg_vals, vararg_vals = all_args[:len(self.params)], to_bytes(all_args[len(self.params):])
@@ -150,28 +147,39 @@ def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) ->
     module: ir.Module = expr.force_get_property('compiled_result').associated_value
     global_jit.add_module(module)
     for arg in args:
-        defn_lookup = compile_scope.defn_lookup_recursive(arg.symbol.s)
-        defns = defn_lookup.list_all()
-        if len(defns) == 0:
-            return pwarning(f"No definitions found for symbol {arg.symbol.s} in compile scope")
+        defns = compile_scope.local_defns.get(arg.symbol.s)
+        if defns is None:
+            return pwarning(f"No definitions found for symbol {arg.symbol.s} in compile scope", anchor=arg)
         # TODO Only handle CompiledUserDefinitions that are not in GlobalJIT yet 
         for defn in defns:
             if not isinstance(defn, compile.CompiledUserDefinition):
                 continue
+            # Copy over the compile definitions to the main scope, so that they can be called from other JIT-compiled functions
+            _, match = scope.defn_lookup_recursive(defn.prop_symb).lookup(defn.properties, [])
+            if match is not None and set(p.property.s for p in match.properties) == set(p.property.s for p in defn.properties):
+                pwarning(f"Function {match} exists with same properties as {defn}, skipping JIT compilation", anchor=arg)
+            else:
+                scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
+
             symb, non_compile_properties = defn.prop_symb, defn.properties
             for i, prop in enumerate(defn.properties):
                 if prop.property == 'compile':
                     non_compile_properties = defn.properties[:i] + defn.properties[i+1:]
                     break
-            # TODO check that we don't already have the function registered in global_jit
+            # TODO Check that we don't already have the function registered in JIT
             llvm_func: ir.Function = module.get_global(symb)
             cfunc_ptr = global_jit.find_llvm_func(llvm_func)
             jit_func = JITFunction(cfunc_ptr, non_compile_properties)
             global_jit.compiled_funcs.setdefault(symb, PropertiesLookup()).exprs.append(jit_func)
             
-            # Create CompiledInterpretableUserDefinition
-            idefn = CompiledInterpretableUserDefinition(symb, non_compile_properties, defn.is_compound, defn.params, defn.scope, llvm_func, cfunc_ptr)
-            scope.local_defns.setdefault(symb, []).append(idefn)
+            # Check that we don't already have the function registered in scope
+            _, match = scope.defn_lookup_recursive(symb).lookup(non_compile_properties, [])
+            if match is not None and set(p.property.s for p in match.properties) == set(p.property.s for p in non_compile_properties):
+                pwarning(f"Function {match} exists with same properties as {defn}, skipping JIT compilation", anchor=arg)
+            else:
+                # Create CompiledInterpretableUserDefinition
+                idefn = CompiledInterpretableUserDefinition(symb, non_compile_properties, defn.is_compound, defn.params, defn.scope, llvm_func, cfunc_ptr)
+                scope.local_defns.setdefault(symb, []).append(idefn)
     # Run the module once
     llvm_main: ir.Function = module.get_global(expr.symbol.s)
     global_jit.find_llvm_func(llvm_main)()

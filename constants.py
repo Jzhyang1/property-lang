@@ -1,3 +1,4 @@
+import inspect
 from typing import Any, Callable, overload
 
 special_symbols = set('~@#$%^&*/-+=<>|?:')
@@ -138,32 +139,25 @@ class Expression(PropertyContainerProtocol):
 class Definition(PropertyContainerProtocol):
     trace_stack: list[tuple[Expression, list[Expression], 'Scope', Property]] = []
     def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
-                 body: list[Expression], scope: 'Scope|None' = None):
+                 body: list[Expression], scope: 'Scope|None' = None,
+                 def_file: str = '<unknown>', def_row: int = 0):
         self.prop_symb = prop_symb
         self.properties = properties
         self.is_compound = is_compound
         self.params = params
         self.body = body
         self.scope = scope
-    
+        self.def_file = def_file
+        self.def_row = def_row
+
     def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
         '''
         this is the function overloaded for builtin properties
         '''
         raise NotImplementedError()
     def __repr__(self):
-        return str(self.prop_symb) + ':' + str(self.properties)
-
-class LambdaDefinition(Definition):
-    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
-                 body: list[Expression], apply_callable: Callable, scope: 'Scope|None' = None):
-        super().__init__(prop_symb, properties, is_compound, params, body, scope)
-        self.apply_callable = apply_callable
-    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
-        self.trace_stack.append((expr, args, scope, prop))
-        res = self.apply_callable(self, expr, args, scope, prop)
-        self.trace_stack.pop()
-        return res
+        func_name = ' '.join(p.property.s for p in self.properties) + ' ' + self.prop_symb
+        return f'[{func_name}]({self.def_file}:{self.def_row})'
 
 # Scoping
 class PropertiesLookup[T: PropertyContainerProtocol]:

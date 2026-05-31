@@ -13,11 +13,10 @@ def get_system_variable(lhs: Expression, rhs: Expression) -> Expression:
     if (var := rhs.try_get_property('string')) is None:
         return pwarning(f"expected a string for variable name, got {rhs}", anchor=rhs)
     var_name = var.associated_value
-    if var_name in os.environ:
-        return Expression(lhs.symbol.create_renamed('variable'), [
-            Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=os.environ[var_name])
-        ])
-    return pwarning(f"variable {var_name} not found in environment", anchor=rhs)
+    val = os.environ.get(var_name, '')
+    return Expression(lhs.symbol.create_renamed('variable'), [
+        Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=val)
+    ])
 
 @register_definition('assign', ['system', 'variable'], ['value'])
 def assign_system_variable(lhs: Expression, rhs: Expression) -> Expression:

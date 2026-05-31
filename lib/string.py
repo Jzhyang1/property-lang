@@ -8,7 +8,7 @@ compile = definitions.import_module(__file__, 'compile.py')
 
 
 @register_definition('==', ['string'], ['operand'])
-def equal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+def equal(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     lval = lhs.force_get_property('string')
     rval = rhs.force_get_property('string')
     res = lval.associated_value == rval.associated_value
@@ -17,7 +17,7 @@ def equal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     ])
 
 @register_definition('!=', ['string'], ['operand'])
-def not_equal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+def not_equal(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     lval = lhs.force_get_property('string')
     rval = rhs.force_get_property('string')
     res = lval.associated_value != rval.associated_value
@@ -26,7 +26,7 @@ def not_equal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expressio
     ])
 
 @register_definition('+', ['string'], ['operand'])
-def concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+def concat(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     lval = lhs.force_get_property('string')
     rval = rhs.force_get_property('string')
     return Expression(lhs.symbol.create_renamed('+'), [
@@ -34,24 +34,29 @@ def concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     ])
 
 @register_definition('length', ['string'], [])
-def length(self, lhs: Expression, scope: Scope) -> Expression:
+def length(lhs: Expression, scope: Scope) -> Expression:
     sval = lhs.force_get_property('string')
     return Expression(lhs.symbol.create_renamed('length'), [
         Property(lhs.symbol.create_renamed('integer'), is_association=True, associated_value=len(sval.associated_value))
     ])
 
 @register_definition('split', ['string'], ['delimiters...'])
-def split(self, lhs: Expression, rhs: list[Expression], scope: Scope) -> Expression:
+def split(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
     lval = lhs.force_get_property('string')
     delimiters = []
-    for r in rhs:
+    for r in args:
         delimiters.append(r.force_get_property('string').associated_value)
-    res = [lval.associated_value]
+    res_strings: list[str] = [lval.associated_value]
     for d in delimiters:
         new_res = []
-        for s in res:
+        for s in res_strings:
             new_res.extend(s.split(d))
-        res = new_res
+        res_strings = new_res
+    res: list[Expression] = [
+        Expression(lhs.symbol.create_renamed('split_result'), [
+            Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=s)
+        ]) for s in res_strings
+    ]
     return Expression(lhs.symbol.create_renamed('split'), [
         Property(lhs.symbol.create_renamed('list'), is_association=True, associated_value=res)
     ])
@@ -74,7 +79,7 @@ def compile_strequal(self, lhs: Expression, rhs: Expression, scope: Scope) -> Ex
     return lhs.create_with_property(int_property).replace_property('compiled_result', compiled_prop)
 
 @register_definition('+', ['compile', 'string'], ['operand'])
-def compile_concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
+def compile_concat(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     module = compile.get_compile_construct(scope, '__MODULE__')
 
@@ -94,7 +99,7 @@ def compile_concat(self, lhs: Expression, rhs: Expression, scope: Scope) -> Expr
     return lhs.replace_property('compiled_result', compiled_prop)
 
 @register_definition('length', ['compile', 'string'])
-def compile_length(self, lhs: Expression, scope: Scope) -> Expression:
+def compile_length(lhs: Expression, scope: Scope) -> Expression:
     builder = compile.get_compile_construct(scope, '__BUILDER__')
     module = compile.get_compile_construct(scope, '__MODULE__')
 

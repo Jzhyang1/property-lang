@@ -125,14 +125,18 @@ class CompiledUserDefinition(Definition):
         args, var_args = args[:len(self.params)], args[len(self.params):]
 
         # make a call to the function
-        builder = get_compile_construct(scope, '__BUILDER__')
+        builder: ir.IRBuilder = get_compile_construct(scope, '__BUILDER__')
         compiled_args = [get_compiled(expression_compile_all(arg, scope), scope) for arg in args]
         compiled_var_arg = get_compiled(compile_list(lhs, [expression_compile_all(arg, scope) for arg in var_args], scope), scope)
         arg_vals = compiled_args + [compiled_var_arg]
 
-        module = get_compile_construct(scope, '__MODULE__')
+        module: ir.Module = get_compile_construct(scope, '__MODULE__')
         llvm_func = module.get_global(self.prop_symb)
         call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
+        # Free varargs
+        free = module.get_global('free')
+        builder.call(free, [compiled_var_arg])
+        # Return result
         compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=call_res)
         ret_prop = Property(lhs.symbol.create_renamed('integer'), is_association=True) # TODO better type handling
         return lhs.create_with_property(ret_prop).replace_property('compiled_result', compiled_prop)
@@ -406,7 +410,8 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     # TODO return a non-integer type
     compile_prop = Property(lhs.symbol.create_renamed('compile'))
     func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), arg_types), name=func_name)
-    defn = CompiledUserDefinition(func_name, [compile_prop] + lhs.properties, is_compound=True, params=params, body=[], scope=scope)
+    defn = CompiledUserDefinition(func_name, [compile_prop] + lhs.properties, True, params, [], scope,
+                                  func_prop.property.file, func_prop.property.row)
     block = func.append_basic_block(name=func_name)
     scope.local_defns.setdefault(func_name, []).append(defn)
 
@@ -548,7 +553,8 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     lhs = lhs.discard_property('compile')   # We treat `compile import` as one op
 
     global anonymous_module_num
-    name = f'anonymous_module_{anonymous_module_num}'
+    scope_name = lhs.symbol.file
+    name = f'{scope_name}({anonymous_module_num})'
     anonymous_module_num += 1
 
     module = ir.Module(name)
@@ -580,12 +586,11 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     
     # Export global definitions as well
     for arg in args:
-        found_all = compile_scope.defn_lookup_recursive(arg.symbol.s)
-        found = found_all.list_all()
-        if len(found) == 0:
-            return pwarning(f"Cannot find definition for '{arg.symbol.s}' to import", anchor=arg)
-        for defn in found:
-            scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
+        if (found_all := compile_scope.local_defns.get(arg.symbol.s)):
+            for defn in found_all:
+                scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
+        else:
+            pwarning(f"Cannot find definition for '{arg.symbol.s}' to import", anchor=arg)
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=module)
     return Expression(lhs.symbol.create_renamed(name), lhs.properties).replace_property('compiled_result', compiled_prop)
 

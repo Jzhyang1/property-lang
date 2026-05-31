@@ -2,7 +2,7 @@ import ast
 
 from constants import special_symbols, start_comment, end_comment, token_types, parentheses, separators, Property, Expression, Token
 
-def tokenize(file) -> list[Token]:
+def tokenize(file: str) -> list[Token]:
     with open(file, 'r') as f:
         code = f.read()
 

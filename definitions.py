@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable
 from errors import perror, pwarning
 
-from constants import Definition, LambdaDefinition, Scope, Expression, Property, Token, token_types
+from constants import Definition, Scope, Expression, Property, Token, token_types
 import constants
 
 __LANG__ = '0.0.2'
@@ -101,11 +101,28 @@ def register_definition(symbol: str, property_names: list[str] = [], param_names
         row = get_defn_line(func)
         props = [Property(Token(p_name, file, row, 0, token_types['alnum'])) for p_name in property_names]
         params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) for param_name in param_names]
-        defn = LambdaDefinition(symbol, props, is_compound, params, [], define_apply(func))
+        defn = _LambdaDefinition(symbol, props, is_compound, params, [], define_apply(func))
         
         global_definitions.setdefault(symbol, []).append(defn)
         return func
     return decorator
+
+class _LambdaDefinition(Definition):
+    def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
+                 body: list[Expression], apply_callable: Callable, scope: 'Scope|None' = None):
+        # Find the location where we are defining this function
+        inspect_stack = inspect.stack()
+        assert len(inspect_stack) > 2
+        parent = inspect_stack[2]
+
+        super().__init__(prop_symb, properties, is_compound, params, body, scope, parent.filename, parent.lineno)
+        self.apply_callable = apply_callable
+    def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
+        self.trace_stack.append((expr, args, scope, prop))
+        res = self.apply_callable(self, expr, args, scope, prop)
+        self.trace_stack.pop()
+        return res
+
 
 # Definitions begin below
 
@@ -207,7 +224,7 @@ def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Express
     from main import UserDefinedDefinition
     scope.local_defns.setdefault(p.property.s, []).append(
         UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
-                   p.is_compound, p.compound_properties, body, scope)
+                   p.is_compound, p.compound_properties, body, scope, p.property.file, p.property.row)
     )
     return Expression(p.property, [
         Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
@@ -256,13 +273,14 @@ def import_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression
         from main import run_file
         imported_globals = run_file(path_str)
         imported_files[path_str] = imported_globals
-    for defn in body:
-        if defn.symbol.s in imported_globals.local_vars:
-            scope.local_vars[defn.symbol.s] = imported_globals.local_vars[defn.symbol.s]
-        elif defn.symbol.s in imported_globals.local_defns:
-            scope.local_defns.setdefault(defn.symbol.s, []).extend(imported_globals.local_defns[defn.symbol.s])
+    for imported_symbol in body:
+        symb = imported_symbol.symbol.s
+        if symb in imported_globals.local_vars:
+            scope.local_vars[symb] = imported_globals.local_vars[symb]
+        elif symb in imported_globals.local_defns:
+            scope.local_defns.setdefault(symb, []).extend(imported_globals.local_defns[symb])
         else:
-            pwarning(f"unable to import {defn.symbol} from {path_str}", anchor=defn)
+            pwarning(f"unable to import {symb} from {path_str}", anchor=imported_symbol)
     return lhs
 
 class ImportedSharedDefinition(Definition):
@@ -393,6 +411,8 @@ def logical_not(lhs: Expression) -> Expression:
     updated_ival.associated_value = not updated_ival.associated_value
     return lhs.replace_property('integer', updated_ival)
 
+# Property operators
+
 @register_definition('properties')
 def properties(lhs: Expression) -> Expression:
     res_list = []
@@ -401,6 +421,12 @@ def properties(lhs: Expression) -> Expression:
             Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
         ]))
     return create_list(lhs.symbol, res_list)
+
+@register_definition('\\', [], ['properties_to_remove...'])
+def remove_property(lhs: Expression, args: list[Expression]) -> Expression:
+    properties_to_remove = set(arg.symbol.s for arg in args)
+    new_properties = [p for p in lhs.properties if p.property.s not in properties_to_remove]
+    return Expression(lhs.symbol, new_properties)
 
 # Types - these are idempotent
 
