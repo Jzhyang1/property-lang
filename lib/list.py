@@ -1,11 +1,8 @@
-from constants import Definition, Scope, Expression, Property, Token
+from constants import Definition, Provenance, Scope, Expression, Property, Token
 from errors import pwarning
 from definitions import register_definition, create_list
 import definitions
-# We extend compilation
-import llvmlite.ir as ir
-import llvmlite.binding as llvm
-compile = definitions.import_module(__file__, 'compile.py')
+compile = definitions.import_module(Provenance.here(), 'compile.py')
 
 # A sequential collection of heterogeneous elements
 
@@ -47,10 +44,7 @@ def each(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     assert iterable is not None 
     if iterable.associated_value is None:
         return lhs
-    if (pval := rhs.try_get_property('property')) is None:
-        return pwarning(f'`each` requires a property argument, got {rhs}', anchor=rhs)
-    prop = pval.associated_value
-    assert prop is not None
+    prop = rhs.force_get_property('property').associated_value
     from main import resolve_last_property
     res: list[Expression] = []
     for item in iterable.associated_value:

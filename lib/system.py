@@ -10,8 +10,7 @@ from definitions import register_definition
 
 @register_definition('variable', ['system'], ['name'])
 def get_system_variable(lhs: Expression, rhs: Expression) -> Expression:
-    if (var := rhs.try_get_property('string')) is None:
-        return pwarning(f"expected a string for variable name, got {rhs}", anchor=rhs)
+    var = rhs.force_get_property('string')
     var_name = var.associated_value
     val = os.environ.get(var_name, '')
     return Expression(lhs.symbol.create_renamed('variable'), [

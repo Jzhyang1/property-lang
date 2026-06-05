@@ -5,11 +5,11 @@ from llvmlite import ir
 import ctypes
 import ctypes.util
 
-from constants import Definition, Expression, Property, Scope, PropertiesLookup, PropertyContainerProtocol
+from constants import Definition, Expression, Property, Provenance, Scope, PropertiesLookup, PropertyContainerProtocol
 from definitions import define_apply, expression_to_associated_value, associated_value_to_expression, register_definition
 import definitions
 from errors import perror, pwarning
-compile = definitions.import_module(__file__, 'compile.py')
+compile = definitions.import_module(Provenance.here(), 'compile.py')
 
 # Declare the signatures
 def to_bytes(s: Any) -> bytes:

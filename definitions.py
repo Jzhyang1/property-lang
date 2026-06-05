@@ -2,9 +2,9 @@ import inspect
 import sys
 import os
 from typing import Any, Callable
-from errors import perror, pwarning
+from errors import perror, pwarning, ErrorMessage
 
-from constants import Definition, Scope, Expression, Property, Token, token_types
+from constants import Definition, ProvenanceAware, Scope, Expression, Property, Token, token_types
 import constants
 
 __LANG__ = '0.0.2'
@@ -237,27 +237,27 @@ def do(lhs: Expression) -> Expression:
 @register_definition('identifier')
 def identifier(lhs: Expression, scope: Scope) -> Expression:
     if (val := scope.var_lookup(lhs.symbol.s)) is None:
-        return pwarning(f"unable to resolve identifier {lhs}", anchor=lhs)
+        return pwarning(ErrorMessage.NO_IDENTIFIER, lhs, anchor=lhs)
     ret = val.copy()
     ret.symbol = lhs.symbol # update the token (file, line, etc) for error messages
     return ret
 
 # Imports
-    
-def find_import_file(path_anchor: str, path: str):
-    path_relative = os.path.join(os.path.dirname(path_anchor), path)
+
+def _find_import_file(anchor: ProvenanceAware, path: str):
+    path_relative = os.path.join(os.path.dirname(anchor.get_source().file), path)
     path_library = path
     if os.path.exists(path_relative):
         return path_relative
     elif os.path.exists(path_library):
         return path_library
     else:
-        perror(f'unable to resolve path {path}')
+        perror(f'unable to resolve path {path}', anchor=anchor)
 
 @register_definition('run', ['string'])
 def run(lhs: Expression, scope: Scope) -> Expression:
     path = lhs.force_get_property('string')
-    path_str = find_import_file(lhs.symbol.file, path.associated_value)
+    path_str = _find_import_file(lhs, path.associated_value)
     from main import run_file
     run_file(path_str)
     return lhs
@@ -266,7 +266,7 @@ imported_files: dict[str, Scope] = {} # maps paths to global variable dicts, to 
 @register_definition('import', ['string'], ['import_signatures...'])
 def import_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     path = lhs.force_get_property('string')
-    path_str = find_import_file(lhs.symbol.file, path.associated_value)
+    path_str = _find_import_file(lhs, path.associated_value)
     if path_str in imported_files:
         imported_globals = imported_files[path_str]
     else:
@@ -280,7 +280,7 @@ def import_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression
         elif symb in imported_globals.local_defns:
             scope.local_defns.setdefault(symb, []).extend(imported_globals.local_defns[symb])
         else:
-            pwarning(f"unable to import {symb} from {path_str}", anchor=imported_symbol)
+            pwarning(ErrorMessage.NO_IMPORT_SYMBOL, symb, path_str, anchor=imported_symbol)
     return lhs
 
 class ImportedSharedDefinition(Definition):
@@ -300,7 +300,7 @@ def import_shared(lhs: Expression, body: list[Expression], scope: Scope) -> Expr
     path = lhs.try_get_property('string')
     assert path is not None
     # Import the shared library file
-    path_str = os.path.abspath(find_import_file(lhs.symbol.file, path.associated_value))
+    path_str = os.path.abspath(_find_import_file(lhs, path.associated_value))
     import ctypes
     lib = ctypes.CDLL(path_str)
     ## TODO signature definition
@@ -330,8 +330,8 @@ class ImportedPythonDefinition(Definition):
         res = self.func(self_value, *arg_values)
         return associated_value_to_expression(lhs.symbol, res)
 
-def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scope: Scope):
-    path_str = find_import_file(path_anchor, path)
+def import_raw_python_file(anchor: Expression, path: str, imports: list[str], scope: Scope):
+    path_str = _find_import_file(anchor, path)
     captured_globals: dict = make_global_vars(path_str)
     captured_globals['__file__'] = path_str
     with open(path_str, 'r') as f:
@@ -342,7 +342,7 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
     res = {}
     for symbol in imports:
         if symbol not in captured_globals:
-            pwarning(f"unable to import {symbol} from {path_str}")
+            pwarning(ErrorMessage.NO_IMPORT_SYMBOL, symbol, path_str, anchor=anchor)
             continue
         defn_impl = captured_globals[symbol]
         if callable(defn_impl):
@@ -358,13 +358,13 @@ def import_raw_python_file(path_anchor: str, path: str, imports: list[str], scop
 def import_python(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     path = lhs.force_get_property('string')
     # Load in the python file
-    import_raw_python_file(lhs.symbol.file, path.associated_value, [defn.symbol.s for defn in body], scope)
+    import_raw_python_file(lhs, path.associated_value, [defn.symbol.s for defn in body], scope)
     return lhs
 
 past_imports = {}
-def import_module(path_anchor: str, path_str: str):
+def import_module(anchor: ProvenanceAware, path_str: str):
     import importlib.util
-    path_str = find_import_file(path_anchor, path_str)
+    path_str = _find_import_file(anchor, path_str)
     # Get string from path_str
     module_name = os.path.splitext(os.path.basename(path_str))[0]
 
@@ -389,7 +389,7 @@ def import_module(path_anchor: str, path_str: str):
 def import_python_definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     path = lhs.force_get_property('string')
     # Load in the python file
-    import_module(lhs.symbol.file, path.associated_value)
+    import_module(lhs, path.associated_value)
     return lhs
     
 # List operators

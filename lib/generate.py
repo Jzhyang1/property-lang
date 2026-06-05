@@ -51,7 +51,7 @@ def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -
         with open(cache_file, 'r') as f:
             previous = f.read()
         if previous == prompt:
-            import_raw_python_file(lhs.symbol.file, output_file, imports, scope)
+            import_raw_python_file(lhs, output_file, imports, scope)
             return lhs
     
     # We need to generate the output source from scratch
@@ -60,7 +60,7 @@ def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -
     with open(cache_file, 'w') as f:
         f.write(prompt)
     # then we create load the generated source and add definitions to `scope`
-    import_raw_python_file(lhs.symbol.file, output_file, imports, scope)
+    import_raw_python_file(lhs, output_file, imports, scope)
     return lhs
 
 @register_definition('check', ['generate'], ['conditions...'])
@@ -80,9 +80,8 @@ def check_definition(lhs: Expression, args: list[Expression], scope: Scope) -> E
 
         for condition in args:
             condition_evaluated = expression_resolve_all(condition, scope, constants.resolve)
-            if (val := condition_evaluated.try_get_property('integer')) is None:
-                return pwarning(f'Condition {condition} did not evaluate to an integer, got {condition_evaluated}', anchor=condition)
-            elif val.associated_value == 0:
+            val = condition_evaluated.force_get_property('integer')
+            if val.associated_value == 0:
                 break
         else:
             # all conditions passed, we are done

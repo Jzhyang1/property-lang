@@ -1,14 +1,14 @@
 import io
 import os
 
-from constants import Definition, Scope, Expression, Property, Token
+from constants import Definition, Provenance, Scope, Expression, Property, Token
 from errors import pwarning
 from definitions import register_definition
 import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
-compile = definitions.import_module(__file__, 'compile.py')
+compile = definitions.import_module(Provenance.here(), 'compile.py')
 
 @register_definition('file')
 def file_property(lhs: Expression) -> Expression:

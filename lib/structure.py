@@ -1,11 +1,11 @@
-from constants import Definition, PropertiesLookup, Scope, Expression, Property, Token
+from constants import Definition, PropertiesLookup, Provenance, Scope, Expression, Property, Token
 from definitions import register_definition, define_apply
 import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
 from constants import Expression, Property, Scope
-compile = globals()['definitions'].import_module(__file__, 'compile.py')
+compile = globals()['definitions'].import_module(Provenance.here(), 'compile.py')
 
 class StructureInstanceDefinition(Definition):
     # requires symbol = 'name_of_structure'

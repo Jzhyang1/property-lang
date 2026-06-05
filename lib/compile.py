@@ -596,8 +596,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
 
 @register_definition('compile_to', [], ['file_dest'])
 def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
-    if (path := rhs.try_get_property('string')) is None:
-        return pwarning(f'compile destination must be a string, got {rhs}', anchor=rhs)
+    path = rhs.force_get_property('string')
     path_str = path.associated_value
     if not (path_str.endswith('.obj') or path_str.endswith('.out')):
         return pwarning(f'compile destination must end with .obj or .out, got {rhs}', anchor=rhs)

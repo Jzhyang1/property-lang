@@ -1,3 +1,5 @@
+from abc import abstractmethod
+from dataclasses import dataclass
 import inspect
 from typing import Any, Callable, overload
 
@@ -27,7 +29,30 @@ separators = {
 immediate_resolve = ['!']
 resolve = ['.'] + immediate_resolve
 
-class Token:
+class ProvenanceAware:
+    @abstractmethod
+    def get_source(self) -> 'Provenance':
+        pass
+
+@dataclass
+class Provenance(ProvenanceAware):
+    file: str
+    row: int
+    col: int
+    def get_source(self) -> 'Provenance':
+        return self
+    @classmethod
+    def here(cls)->'Provenance':
+        '''returns the location where this method is called'''
+        parent = inspect.stack()[1]
+        return Provenance(parent.filename, parent.lineno, parent.index or 0)
+    @classmethod
+    def caller(cls)->'Provenance':
+        '''returns the location where this method is called'''
+        parent = inspect.stack()[2]
+        return Provenance(parent.filename, parent.lineno, parent.index or 0)
+
+class Token(ProvenanceAware):
     def __init__(self, s: str, file: str, row: int, col: int, token_type: int):
         self.s = s
         self.file = file
@@ -36,6 +61,8 @@ class Token:
         self.token_type = token_type
     def create_renamed(self, s: str):
         return Token(s, self.file, self.row, self.col, self.token_type)
+    def get_source(self) -> Provenance:
+        return Provenance(self.file, self.row, self.col)
     def __eq__(self, other: 'Token | str'):
         return str(other) == self.s
     def __str__(self) -> str:
@@ -43,7 +70,7 @@ class Token:
     def __repr__(self) -> str:
         return f'[{self.file}:{self.row}:{self.col}] {self.s}'
 
-class Property:
+class Property(ProvenanceAware):
     def __init__(self, property: Token, 
                  is_compound: bool=False, compound_properties: list['Expression']|None = None,
                  is_association: bool=False, associated_value: Any=None, start_char: str=''):
@@ -57,13 +84,15 @@ class Property:
         return str(self.property) + (self.start_char or '?') + ','.join(map(str, self.compound_properties)) + parentheses.get(self.start_char, '?') if self.is_compound else str(self.property)
     def __repr__(self) -> str:
         return str(self)
+    def get_source(self) -> Provenance:
+        return self.property.get_source()
     def copy(self):
         return Property(self.property, self.is_compound, self.compound_properties, self.is_association, self.associated_value, self.start_char)
 
 class PropertyContainerProtocol:    # Protocol
     properties: list[Property]
 
-class Expression(PropertyContainerProtocol):
+class Expression(PropertyContainerProtocol, ProvenanceAware):
     def __init__(self, symbol: Token, properties: list['Property']):
         self.symbol = symbol
         self.properties = properties
@@ -71,9 +100,10 @@ class Expression(PropertyContainerProtocol):
         return str(self.symbol) + ':' + ' '.join(map(str, self.properties)) if len(self.properties) > 0 else str(self.symbol)
     def __repr__(self) -> str:
         return str(self)
+    def get_source(self) -> Provenance:
+        return self.symbol.get_source()
     def copy(self):
         return Expression(self.symbol, [property.copy() for property in self.properties])
-    
     def try_get_property(self, property_name: str) -> Property | None:
         for property in self.properties:
             if property.property == property_name:
@@ -136,7 +166,7 @@ class Expression(PropertyContainerProtocol):
             return self, None
         return Expression(self.symbol, properties[:i+1]), properties[i+1:]
 
-class Definition(PropertyContainerProtocol):
+class Definition(PropertyContainerProtocol, ProvenanceAware):
     trace_stack: list[tuple[Expression, list[Expression], 'Scope', Property]] = []
     def __init__(self, prop_symb: str, properties: list[Property], is_compound: bool, params: list[Expression], 
                  body: list[Expression], scope: 'Scope|None' = None,
@@ -158,6 +188,8 @@ class Definition(PropertyContainerProtocol):
     def __repr__(self):
         func_name = ' '.join(p.property.s for p in self.properties) + ' ' + self.prop_symb
         return f'[{func_name}]({self.def_file}:{self.def_row})'
+    def get_source(self) -> Provenance:
+        return Provenance(self.def_file, self.def_row, 0)
 
 # Scoping
 class PropertiesLookup[T: PropertyContainerProtocol]:

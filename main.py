@@ -26,7 +26,7 @@ class UserDefinedDefinition(Definition):
             try:
                 last = expression_resolve_all(local_expr, new_scope, constants.resolve)
             except Exception as e:
-                perror(f"error while resolving {local_expr}", anchor=local_expr, child_error=e)
+                perror("error while resolving {}", local_expr, anchor=local_expr, child_error=e)
         self.trace_stack.pop()
         return last
 
