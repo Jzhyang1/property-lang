@@ -1,5 +1,5 @@
 "lib/compile.py" python definition import;
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "lib/list.py" python definition import;
 "lib/list.lang" import(at);
 "lib/jitcompile.py" python definition import;

@@ -1,4 +1,4 @@
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "lib/file.py" python definition import;
 "lib/compile.py" python definition import;
 "lib/jitcompile.py" python definition import;

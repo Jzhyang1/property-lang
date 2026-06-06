@@ -1,4 +1,4 @@
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "lib/list.py" python definition import;
 "lib/structure.py" python definition import;
 "lib/test.lang" import(begin, output_assert);

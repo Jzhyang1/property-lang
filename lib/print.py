@@ -1,59 +1,41 @@
 from constants import Definition, Provenance, Scope, Expression, Property, Token
-from definitions import register_definition
+from definitions import register_definition, expression_to_associated_value
 import definitions
 
 # We extend compilation
 import llvmlite.ir as ir
+
+from errors import ErrorMessage, perror, pwarning
 compile = definitions.import_module(Provenance.here(), 'compile.py')
 
-@register_definition('print', ['integer'])
-def print_integer(lhs: Expression) -> Expression:
-    ival = lhs.force_get_property('integer')
-    print(ival.associated_value)
-    return lhs
-
-@register_definition('print', ['string'])
-def print_string(lhs: Expression) -> Expression:
-    sval = lhs.force_get_property('string')
-    print(sval.associated_value)
-    return lhs
+@register_definition('print', ['format', 'string'], ['args...'])
+def format_print(lhs: Expression, args: list[Expression]):
+    fmt: str = lhs.force_get_property('string').associated_value
+    raw_args = tuple(expression_to_associated_value(arg) for arg in args)
+    try:
+        s = fmt % raw_args
+    except TypeError as e:
+        # Count the format specifiers and get their types
+        perror("Bad arguments {} for format specifier {}", raw_args, fmt, anchor=lhs, child_error=e)
+    print(s)
 
 @register_definition('print', ['list'])
 def print_list(lhs: Expression) -> Expression:
-    lval = lhs.force_get_property('list')
-    print(lval.associated_value)
+    lval = lhs.force_get_property('list').associated_value
+    print(lval)
     return lhs
 
 # Compilation
 
-@register_definition('print', ['compile', 'integer'])
-def compile_print_integer(lhs: Expression, scope: Scope) -> Expression:
-    builder = compile.get_compile_construct(scope, '__BUILDER__')
-    module = compile.get_compile_construct(scope, '__MODULE__')
-    lhs_val = compile.get_compiled(lhs, scope)
-    builder.call(module.get_global('print_integer'), [lhs_val], 'print_tmp')
-    builder.call(module.get_global('flush'), [])
-    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
-    return lhs.replace_property('compiled_result', compiled_prop)
-
-@register_definition('print', ['compile', 'string'])
-def compile_print_string(lhs: Expression, scope: Scope) -> Expression:
+# We only have the printf binding here, the rest is defined in lib/string.lang
+@register_definition('print', ['compile', 'format', 'string'], ['args...'])
+def compile_format_print(lhs: Expression, args: list[Expression], scope: Scope):
     builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
-    module = compile.get_compile_construct(scope, '__MODULE__')
-    lhs_val = compile.get_compiled(lhs, scope)
-    builder.call(module.get_global('puts'), [lhs_val], 'print_tmp')
-    builder.call(module.get_global('flush'), [])
-    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
-    return lhs.replace_property('compiled_result', compiled_prop)
-
-@register_definition('print', ['compile', 'pointer'])
-def compile_print_pointer(lhs: Expression, scope: Scope) -> Expression:
-    # For now we just print the pointer as an integer, but ideally we would want to print hex
-    builder: ir.IRBuilder = compile.get_compile_construct(scope, '__BUILDER__')
-    module = compile.get_compile_construct(scope, '__MODULE__')
-    lhs_val = compile.get_compiled(lhs, scope)
-    lhs_val_int = builder.ptrtoint(lhs_val, ir.IntType(64))
-    builder.call(module.get_global('print_integer'), [lhs_val_int], 'print_tmp')
-    builder.call(module.get_global('flush'), [])
-    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=lhs_val)
+    module: ir.Module = compile.get_compile_construct(scope, '__MODULE__')
+    fmt_arg: ir.Value = compile.get_compiled(lhs, scope)
+    body_args: list[ir.Value] = [compile.get_compiled(arg, scope) for arg in args]
+    res = builder.call(module.get_global('printf'), [fmt_arg] + body_args)
+    # Flush immediately after
+    builder.call(module.get_global('fflush'), [ir.Constant(ir.PointerType(ir.IntType(8)), None)])
+    compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=res)
     return lhs.replace_property('compiled_result', compiled_prop)

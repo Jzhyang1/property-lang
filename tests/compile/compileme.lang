@@ -1,6 +1,6 @@
 "lib/compile.py" python definition import;
 "lib/string.py" python definition import;
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "lib/arithmetic.py" python definition import;
 "lib/jitcompile.py" python definition import;
 "lib/test.lang" import(begin, output_assert);

@@ -1,0 +1,13 @@
+"lib/jitcompile.py" python definition import;
+"lib/print.py" python definition import;
+
+0 do (
+	integer_value integer print definition{
+		"%i\n" format print[integer_value];
+		integer_value;
+	} return(_ integer);
+	string_value string print definition{
+		"%s\n" format print[string_value];
+		string_value;
+	} return(_ string);
+) jit compile import(print);

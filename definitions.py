@@ -50,6 +50,8 @@ def associated_value_to_expression(anchor: Token, value: Any, name:'str|None'=No
                 associated_value_to_expression(anchor, i) for i in value
             ])
         ])
+    elif isinstance(value, bytes):  # TODO we're just assuming bytes are always strings which is dangerous
+        return associated_value_to_expression(anchor, value.decode(), name)
     elif isinstance(value, Expression):
         return value
     else:
@@ -238,6 +240,14 @@ def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Express
     return Expression(p.property, [
         Property(p.property.create_renamed('property'), is_association=True, associated_value=(p, ret))
     ])
+
+@register_definition('return', ['definition'], ['body...'])
+def return_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    # TODO do we even do anything about types here?
+    # body is the type we want for our lhs, but we can only know the type during function call
+    from main import resolve_property_on
+    lhs, defn_prop = lhs.discard_properties_after('definition')
+    return resolve_property_on(lhs, defn_prop, scope, [])
     
 @register_definition('do', [], ['body...'])
 def do(lhs: Expression) -> Expression:

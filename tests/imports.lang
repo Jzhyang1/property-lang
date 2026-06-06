@@ -5,7 +5,7 @@
  * 5040
  * 479001600
  */
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "tests/imports/not_lib.py" python import(factorial);
 "lib/arithmetic.py" python definition import;
 "tests/imports/square.lang" import(square);

@@ -8,7 +8,7 @@ import ctypes.util
 from constants import Definition, Expression, Property, Provenance, Scope, PropertiesLookup, PropertyContainerProtocol
 from definitions import define_apply, expression_to_associated_value, associated_value_to_expression, register_definition
 import definitions
-from errors import perror, pwarning
+from errors import ErrorMessage, perror, pwarning
 compile = definitions.import_module(Provenance.here(), 'compile.py')
 
 # Declare the signatures
@@ -29,6 +29,14 @@ def to_bytes(s: Any) -> bytes:
         return byte_array
     else:
         raise TypeError(f"Cannot convert type {type(s)} to bytes")
+    
+def to_ctype(s: Any):
+    if isinstance(s, str):
+        return to_bytes(s)
+    elif isinstance(s, int):
+        return s
+    else:
+        perror("Please add to this line that threw the error")
 
 class JITFunction(PropertyContainerProtocol):
     def __init__(self, cfunc, properties: list[Property]):
@@ -105,6 +113,9 @@ def llvm_to_ctypes(llvm_type: ir.Type) -> CtypeOptions:
         pointee: ir.Type = llvm_type.pointee # type: ignore
         if isinstance(pointee, ir.VoidType):
             return ctypes.c_void_p
+        # TODO we're just assuming all char arrays are strings which is dangerous
+        elif isinstance(pointee, ir.IntType) and pointee.width == 8:
+            return ctypes.c_char_p
         # recursively find the pointer base type
         return ctypes.POINTER(llvm_to_ctypes(pointee))
     # Array Types
@@ -132,24 +143,28 @@ class CompiledInterpretableUserDefinition(Definition):
     @define_apply
     def apply(self, lhs: Expression, args: list[Expression]) -> Expression:
         # calls a compiled function in interpreter
-        arg0_val = expression_to_associated_value(lhs)
-        all_args = [expression_to_associated_value(arg) for arg in args]
+        arg0_val = to_ctype(expression_to_associated_value(lhs))
+        all_args = [to_ctype(expression_to_associated_value(arg)) for arg in args]
         arg_vals, vararg_vals = all_args[:len(self.params)], to_bytes(all_args[len(self.params):])
         varargs_ptr = (ctypes.c_char * len(vararg_vals)).from_buffer(vararg_vals)
-        res = self.cfunc(arg0_val, *arg_vals, varargs_ptr)
+        try:
+            res = self.cfunc(arg0_val, *arg_vals, varargs_ptr)
+        except ctypes.ArgumentError as e:
+            perror("{}", e, anchor=lhs)
         return associated_value_to_expression(lhs.symbol, res)
 
 @register_definition('import', ['jit', 'compile'], ['signatures...'])
 def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
     compile_scope = Scope(parent_scope=scope)
     expr: Expression = compile.compile_import(lhs.discard_property('jit'), args, compile_scope)
+    # done compiling everything
     # JIT up all definitions in compile_scope
     module: ir.Module = expr.force_get_property('compiled_result').associated_value
     global_jit.add_module(module)
     for arg in args:
         defns = compile_scope.local_defns.get(arg.symbol.s)
         if defns is None:
-            return pwarning(f"No definitions found for symbol {arg.symbol.s} in compile scope", anchor=arg)
+            return pwarning(ErrorMessage.NO_IMPORT_SYMBOL, arg, lhs, anchor=arg)
         # TODO Only handle CompiledUserDefinitions that are not in GlobalJIT yet 
         for defn in defns:
             if not isinstance(defn, compile.CompiledUserDefinition):
@@ -167,7 +182,8 @@ def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) ->
                     non_compile_properties = defn.properties[:i] + defn.properties[i+1:]
                     break
             # TODO Check that we don't already have the function registered in JIT
-            llvm_func: ir.Function = module.get_global(symb)
+            func_name = compile.mangle_signature(symb, non_compile_properties)
+            llvm_func: ir.Function = module.get_global(func_name)
             cfunc_ptr = global_jit.find_llvm_func(llvm_func)
             jit_func = JITFunction(cfunc_ptr, non_compile_properties)
             global_jit.compiled_funcs.setdefault(symb, PropertiesLookup()).exprs.append(jit_func)

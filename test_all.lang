@@ -2,7 +2,7 @@
 "lib/list.py" python definition import;
 "lib/string.py" python definition import;
 "lib/test.lang" import(pass_count, fail_count);
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 
 _ system path("tests").list(recursive).each(
 	path _ definition{

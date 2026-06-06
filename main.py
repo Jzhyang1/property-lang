@@ -54,9 +54,9 @@ def resolve_property_on(expr: Expression, prop: Property, scope: Scope, addition
     matches = scope.defn_lookup_recursive(prop.property.s)
     score, best_match = matches.lookup(expr.properties, context)
     if score < 0:
-        return pwarning(f"Could not resolve property `{prop}` on `{expr}`", anchor=expr)
+        return pwarning(ErrorMessage.NO_PROPERTY, prop, expr, anchor=expr)
     elif best_match is None:
-        return pwarning(f"Multiple matches found for property `{prop}` on `{expr}`", anchor=expr)
+        return pwarning(ErrorMessage.MANY_MATCHES, prop, expr, anchor=expr)
     # print(expr, '>>>', best_match)
     
     # forward resolve

@@ -1,6 +1,6 @@
 "lib/pointer.py" python definition import;
 "lib/compile.py" python definition import;
-"lib/print.py" python definition import;
+"lib/print.lang" import(print);
 "lib/jitcompile.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
 _ test begin[__IMPORT_PATH__];

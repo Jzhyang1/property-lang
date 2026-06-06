@@ -17,8 +17,8 @@ class CompileTypeProperties(PropertyContainerProtocol):
         self.properties = properties
         self.t = t
 
-CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__', '__TYPE_MAP__']
-CompileConstructType = ir.Module | ir.IRBuilder | str | PropertiesLookup[CompileTypeProperties]
+CompileConstruct = Literal['__MODULE__', '__IMPORT_PATH__', '__BUILDER__', '__TYPE_MAP__', '__RETURN_TYPE__']
+CompileConstructType = ir.Module | ir.IRBuilder | ir.Type | str | PropertiesLookup[CompileTypeProperties]
 
 # compiled_result: generated values for compilation
 # compile: property that triggers the compilation resolution over regular resolution
@@ -115,8 +115,15 @@ def size_of_type(type: ir.Type) -> int:
         perror(f"Cannot determine size of function type '{type}'")
     raise perror(f"Unsupported LLVM type for size calculation: '{type}'")
 
+def mangle_signature(prop_symb: str, props: list[Property]) -> str:
+    prop_strings = [p.property.s for p in props]
+    return '.'.join(sorted(prop_strings) + [prop_symb])
+
 class CompiledUserDefinition(Definition):
-    # To be stored as a "compile" definition on the func name
+    def __init__(self, *args, llvm_func: ir.Function, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.llvm_func = llvm_func
+    # TODO optimize runtime a bit by storing the llvm_func on creation of the definition
     @define_apply
     def apply(self, lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
         args = [lhs] + args
@@ -131,8 +138,7 @@ class CompiledUserDefinition(Definition):
         arg_vals = compiled_args + [compiled_var_arg]
 
         module: ir.Module = get_compile_construct(scope, '__MODULE__')
-        llvm_func = module.get_global(self.prop_symb)
-        call_res = builder.call(llvm_func, arg_vals, self.prop_symb)
+        call_res = builder.call(self.llvm_func, arg_vals, self.prop_symb)
         # Free varargs
         free = module.get_global('free')
         builder.call(free, [compiled_var_arg])
@@ -396,24 +402,23 @@ def compile_do(lhs: Expression, body: list[Expression], scope: Scope) -> Express
 @register_definition('definition', ['compile'], ['body...'])
 def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     # The function property is the last property in lhs
-    # TODO name mangling to allow multiple functions with the same name but different signatures
-    # The parameters are the lhs symbol and the symbols in the compound properties of the last property in the lhs
+    # The parameters are: lhs + the compound properties of the last property in the lhs
     lhs = lhs.discard_property('identifier')
     *lhs.properties, func_prop = lhs.properties
-    func_name = func_prop.property.s
-    # TODO types for parameters and return value
+    prop_name = func_prop.property.s
+    func_name = mangle_signature(func_prop.property.s, lhs.properties)
     params = [lhs] + func_prop.compound_properties
     params = [param.discard_property('identifier') for param in params]
     vararg = Expression(symbol=lhs.symbol.create_renamed('arguments'), properties=[Property(lhs.symbol.create_renamed('list'))])
     arg_types = [get_type(param, scope) for param in params] + [get_type(vararg, scope)]
+    ret_type = get_compile_construct(scope, '__RETURN_TYPE__')
 
-    # TODO return a non-integer type
     compile_prop = Property(lhs.symbol.create_renamed('compile'))
-    func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ir.IntType(64), arg_types), name=func_name)
-    defn = CompiledUserDefinition(func_name, [compile_prop] + lhs.properties, True, params, [], scope,
-                                  func_prop.property.file, func_prop.property.row)
+    func = ir.Function(get_compile_construct(scope, '__MODULE__'), ir.FunctionType(ret_type, arg_types), name=func_name)
+    defn = CompiledUserDefinition(prop_name, [compile_prop] + lhs.properties, True, params, [], scope,
+                                  func_prop.property.file, func_prop.property.row, llvm_func=func)
     block = func.append_basic_block(name=func_name)
-    scope.local_defns.setdefault(func_name, []).append(defn)
+    scope.local_defns.setdefault(prop_name, []).append(defn)
 
     compile_scope = Scope(parent_scope=scope)
     builder = ir.IRBuilder(block)
@@ -441,6 +446,15 @@ def compile_definition(lhs: Expression, body: list[Expression], scope: Scope) ->
     property_prop = Property(func_prop.property.create_renamed('property'))
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=func)
     return Expression(func_prop.property, [compiled_prop, compiled_prop, property_prop])
+
+@register_definition('return', ['compile', 'definition'], ['body...'])
+def return_(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+    # body will evaluate to the type we want for our lhs, 
+    # TODO wait to resolve body when the definition is invoked -> This is our version of generics
+    rhs_type: ir.Type = get_type(body[-1], scope)
+    set_compile_construct(lhs.symbol, scope, '__RETURN_TYPE__', rhs_type)
+    from main import resolve_last_property
+    return resolve_last_property(lhs, scope, [])
 
 # Lists (we need this for variadic args)
 
@@ -489,31 +503,6 @@ def compile_list_from_pointer(lhs: Expression, scope: Scope, prop: Property) -> 
 # TODO make the compilation imports/linking more explicit
 imported_modules: dict[str, tuple[ir.Module, Collection[ir.Function]]] = {}
 
-# Our own "stdlib" methods
-def _define_print_integer(module):
-    # Create a global string for the format specifier
-    fmt_str = "%ld\n\0"
-    fmt_ty = ir.ArrayType(ir.IntType(8), len(fmt_str))
-    fmt_str_global = ir.GlobalVariable(module, fmt_ty, name="fmt_str")
-    fmt_str_global.linkage = 'internal'
-    fmt_str_global.global_constant = True
-    fmt_str_global.initializer = ir.Constant(fmt_ty, bytearray(fmt_str.encode("utf8"))) # type: ignore
-
-    # Define the print_integer function (returns its argument after printing it)
-    print_integer = ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.IntType(64)]), name="print_integer")
-    block = print_integer.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-    fmt_arg = builder.bitcast(fmt_str_global, ir.PointerType(ir.IntType(8)))
-    builder.call(module.get_global('printf'), [fmt_arg, print_integer.args[0]])
-    builder.ret(print_integer.args[0])
-
-def _define_flush_all(module):
-    flush = ir.Function(module, ir.FunctionType(ir.VoidType(), []), name="flush")
-    block = flush.append_basic_block(name="entry")
-    builder = ir.IRBuilder(block)
-    builder.call(module.get_global('fflush'), [ir.Constant(ir.PointerType(ir.IntType(8)), None)])
-    builder.ret_void()
-
 # Create all cstdlib function declarations
 def _cstdlib_module():
     module = ir.Module(name="stdlib")
@@ -540,9 +529,7 @@ def _cstdlib_module():
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcat')
     ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))]), name='strlen')
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strtok')
-
-    _define_print_integer(module)
-    _define_flush_all(module)
+    
     return module
 
 def _imported_signature(src:ir.Module, exclude: Collection[ir.Function] = []) -> tuple[ir.Module, Collection[ir.Function]]:
@@ -597,6 +584,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', name)
     set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', _default_typemap(lhs.symbol))
+    set_compile_construct(lhs.symbol, compile_scope, '__RETURN_TYPE__', ir.IntType(64))
 
     inherited = inherit_declarations(module)
     resolution_property = Property(lhs.symbol.create_renamed('.'))
@@ -639,6 +627,7 @@ def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     set_compile_construct(lhs.symbol, compile_scope, '__BUILDER__', builder)
     set_compile_construct(lhs.symbol, compile_scope, '__IMPORT_PATH__', path_str)
     set_compile_construct(lhs.symbol, compile_scope, '__TYPE_MAP__', _default_typemap(lhs.symbol))
+    set_compile_construct(lhs.symbol, compile_scope, '__RETURN_TYPE__', ir.IntType(64))
 
     inherited = inherit_declarations(module) # Add type definitions to module
     resolution_property = Property(lhs.symbol.create_renamed('.'))
