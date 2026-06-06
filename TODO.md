@@ -7,6 +7,5 @@
 - Assembly properties (e.g. registers, operands)
 - Architecture and OS dependent properties
 - Scoped type resolution for compile
-- Why are there segfaults when I import "lib/list.lang" before "lib/print.py"?
 - Type checking for args/body
 - `each` currently handles `property` very weirdly; currently requires the property to be unique otherwise may call the another property from the one passed in
