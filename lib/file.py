@@ -65,14 +65,12 @@ def read_file(lhs: Expression) -> Expression:
     ])
 
 
-@register_definition('write', ['file'], ['string_to_write'])
+@register_definition('write', ['file'], [('string_to_write', ['string'])])
 def write_file(lhs: Expression, rhs: Expression) -> Expression:
     file_prop = lhs.force_get_property('file')
     if not file_prop.is_association:
         return pwarning(f"cannot write to file {file_prop} which is not open", anchor=lhs)
-    if (rval := rhs.try_get_property('string')) is None:
-        return pwarning(f"write requires a string property, got {rhs}", anchor=rhs)
-    write_str: str = rval.associated_value
+    write_str: str = rhs.force_get_property('string').associated_value
     file_prop.associated_value.write(write_str)
     return Expression(lhs.symbol.create_renamed('write'), [
         Property(lhs.symbol.create_renamed('string'), is_association=True, associated_value=write_str)
@@ -147,7 +145,7 @@ def compile_read_file(lhs: Expression, scope: Scope) -> Expression:
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=buffer_ptr)
     return lhs.replace_property('file', string_prop).replace_property('compiled_result', compiled_prop)
 
-@register_definition('write', ['compile', 'file'], ['string_to_write'])
+@register_definition('write', ['compile', 'file'], [('string_to_write', ['string'])])
 def compile_write_file(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     module = compile.get_compile_construct(scope, '__MODULE__')
     builder = compile.get_compile_construct(scope, '__BUILDER__')

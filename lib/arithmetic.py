@@ -12,7 +12,7 @@ def integer_binary_op(op: str) -> Callable[[Callable[[int, int],int]], None]:
             ires.is_association = True
             ires.associated_value = func(idst.associated_value, ival.associated_value)
             return lhs.replace_property('integer', ires)
-        register_definition(op, ['integer'], ['operand'])(apply)
+        register_definition(op, ['integer'], [('operand', ['integer'])])(apply)
     return wrapper
 
 @integer_binary_op('+')

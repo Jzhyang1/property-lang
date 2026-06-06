@@ -2,15 +2,18 @@ from typing import Callable, Collection
 
 from constants import Property, Expression, Definition, Scope
 import constants
-from errors import perror, pwarning
-from definitions import global_definitions, get_context, make_global_vars
+from errors import perror, pwarning, ErrorMessage
+from definitions import global_definitions, get_context, inherits, make_global_vars
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
     def apply(self, expr: Expression, args: list[Expression], scope: Scope, prop: Property) -> Expression:
         self.trace_stack.append((expr, args, scope, prop))    # for trace prints
-        if len(args) < len(self.params):
-            perror(f"not enough arguments provided to {self.prop_symb} (expected {self.params}, got {args})", anchor=prop)
+        if len(self.params) > len(args):
+            perror(ErrorMessage.BAD_NUMBER_ARGS, self.params, self, args, anchor=expr)
+        for param, arg in zip(self.params, args):
+            if not inherits(arg, param):
+                perror(ErrorMessage.BAD_TYPE, arg, param, anchor=expr)
         
         new_scope = Scope(parent_scope=self.scope)
         new_scope.local_vars[self.prop_symb] = expr

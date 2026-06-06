@@ -30,7 +30,7 @@ class ErrorMessage(Enum):
     MANY_IMPORT_DEFINITION = "cannot import definition `{}({})` that already exists"
     MANY_MATCHES = "multiple matches found for `{}` on `{}`"
     BAD_TYPE = "attempting to use `{}` for `{}`"
-    BAD_NUMBER_ARGS = "expected {} argument(s) but got `{}`"
+    BAD_NUMBER_ARGS = "expected {} argument(s) to {} but got `{}`"
     BAD_COMPILE_EXTENSION = "compile destination `{}` must end with `.obj` or `.out`"
     BAD_INDEX = "Index {} out of bounds for list of size {}"
     BAD_SIZE = "Cannot have negative size {}"

@@ -190,6 +190,35 @@ class Definition(PropertyContainerProtocol, ProvenanceAware):
         return f'[{func_name}]({self.def_file}:{self.def_row})'
     def get_source(self) -> Provenance:
         return Provenance(self.def_file, self.def_row, 0)
+    
+# For fast Python prototyping
+type PropertyLiteral = 'str|tuple[str,list[ExpressionLiteral]]'
+type ExpressionLiteral = 'str|tuple[str,list[PropertyLiteral]]'
+def literal_pack_to_property(props: list[PropertyLiteral], anchor: ProvenanceAware)->list[Property]:
+    source = anchor.get_source()
+    res = []
+    for prop in props:
+        s, l = (prop, []) if isinstance(prop, str) else prop
+        if s.endswith('...'):
+            # TODO type handling for variadic parameters(?)
+            continue
+        token = Token(s, source.file, source.row, source.col, token_types['alnum'])
+        exprs = literal_pack_to_expression(l, anchor)
+        res.append(Property(token, is_compound=len(exprs)>0, compound_properties=exprs))
+    return res
+def literal_pack_to_expression(exprs: list[ExpressionLiteral], anchor: ProvenanceAware)->list[Expression]:
+    source = anchor.get_source()
+    res = []
+    for expr in exprs:
+        s, l = (expr, []) if isinstance(expr, str) else expr
+        if s.endswith('...'):
+            # TODO type handling for variadic parameters(?)
+            continue
+        token = Token(s, source.file, source.row, source.col, token_types['alnum'])
+        props = literal_pack_to_property(l, anchor)
+        res.append(Expression(token, properties=props))
+    return res
+
 
 # Scoping
 class PropertiesLookup[T: PropertyContainerProtocol]:

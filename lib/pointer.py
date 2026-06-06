@@ -44,7 +44,7 @@ def reference(lhs: Expression, scope: Scope) -> Expression:
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=PointedTo([associated_expr]))
     return lhs.create_with_property(ptr_prop)
 
-@register_definition('allocate', [], ['count'])
+@register_definition('allocate', [], [('count', ['integer'])])
 def allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     count = rhs.force_get_property('integer').associated_value
     if count < 0:
@@ -54,7 +54,7 @@ def allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'), is_association=True, associated_value=PointedTo(allocated))
     return lhs.create_with_property(ptr_prop)
 
-@register_definition('reallocate', ['pointer'], ['new_count'])
+@register_definition('reallocate', ['pointer'], [('new_count', ['integer'])])
 def reallocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     new_count = rhs.force_get_property('integer').associated_value
     if new_count < 0:
@@ -151,7 +151,7 @@ def compile_reference(lhs: Expression, scope: Scope) -> Expression:
     ptr_prop = Property(lhs.symbol.create_renamed('pointer'))
     return lhs.create_with_property(ptr_prop).replace_property('compiled_result', compiled_prop)
 
-@register_definition('allocate', ['compile'], ['count'])
+@register_definition('allocate', ['compile'], [('count', ['integer'])])
 def compile_allocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     count_value = compile.get_compiled(rhs, scope)
     builder = compile.get_compile_construct(scope, '__BUILDER__')
@@ -169,7 +169,7 @@ def compile_deallocate(lhs: Expression, scope: Scope) -> Expression:
     builder.call(module.get_global('free'), [ptr_value])
     return lhs
 
-@register_definition('reallocate', ['compile', 'pointer'], ['new_count'])
+@register_definition('reallocate', ['compile', 'pointer'], [('new_count', ['integer'])])
 def compile_reallocate(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     ptr_value = compile.get_compiled(lhs, scope)
     new_count_value = compile.get_compiled(rhs, scope)

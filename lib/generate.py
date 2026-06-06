@@ -37,7 +37,7 @@ def generate_file(output_file: str, prompt: str) -> None:
         f.write(content)
 
 
-@register_definition('generate', ['string', 'python'], ['prompt', 'generate_signatures...'])
+@register_definition('generate', ['string', 'python'], [('prompt', ['string']), 'generate_signatures...'])
 def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
     rhs, *args = args
     output_file, prompt = lhs.force_get_property('string'), rhs.force_get_property('string')

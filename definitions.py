@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable
 from errors import perror, pwarning, ErrorMessage
 
-from constants import Definition, ProvenanceAware, Scope, Expression, Property, Token, token_types
+from constants import Definition, ExpressionLiteral, PropertyLiteral, Provenance, ProvenanceAware, Scope, Expression, Property, Token, literal_pack_to_expression, literal_pack_to_property, token_types
 import constants
 
 __LANG__ = '0.0.2'
@@ -36,6 +36,10 @@ def associated_value_to_expression(anchor: Token, value: Any, name:'str|None'=No
         return Expression(anchor.create_renamed(name or 'integer'), [
             Property(anchor.create_renamed('integer'), is_association=True, associated_value=value)
         ])
+    elif isinstance(value, bool):
+        return Expression(anchor.create_renamed(name or 'integer'), [
+            Property(anchor.create_renamed('integer'), is_association=True, associated_value=int(value))
+        ])
     elif isinstance(value, str):
         return Expression(anchor.create_renamed(name or 'string'), [
             Property(anchor.create_renamed('string'), is_association=True, associated_value=value)
@@ -46,6 +50,8 @@ def associated_value_to_expression(anchor: Token, value: Any, name:'str|None'=No
                 associated_value_to_expression(anchor, i) for i in value
             ])
         ])
+    elif isinstance(value, Expression):
+        return value
     else:
         perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}', anchor=anchor)
 
@@ -72,6 +78,7 @@ def pick_prop(self, expr, args, scope, prop) -> Property:
     return prop
 
 def define_apply(func: Callable):
+    '''We do inheritance checking in the apply method of the classes, not here'''
     extractors = {
         'self': pick_self,
         'lhs': pick_lhs, 'rhs': pick_rhs,
@@ -90,17 +97,17 @@ def define_apply(func: Callable):
             extractor(self, lhs, args, scope, prop)
             for extractor in param_extractors
         ]
-        return func(*values)
+        return associated_value_to_expression(lhs.symbol, func(*values))
     return apply
 
 # Decorator
-def register_definition(symbol: str, property_names: list[str] = [], param_names: list[str] = [], is_compound: bool = False):
+def register_definition(symbol: str, property_names: list[PropertyLiteral] = [], param_names: list[ExpressionLiteral] = [], is_compound: bool = False):
     def decorator[T](func: T) -> T:
         assert callable(func)
-        file = get_defn_file(func)
-        row = get_defn_line(func)
-        props = [Property(Token(p_name, file, row, 0, token_types['alnum'])) for p_name in property_names]
-        params = [Expression(Token(param_name, file, row, 0, token_types['alnum']), []) for param_name in param_names]
+        file, row = get_defn_file(func), get_defn_line(func)
+        anchor = Provenance(file, row, 0)
+        props = literal_pack_to_property(property_names, anchor)
+        params = literal_pack_to_expression(param_names, anchor)
         defn = _LambdaDefinition(symbol, props, is_compound, params, [], define_apply(func))
         
         global_definitions.setdefault(symbol, []).append(defn)
@@ -114,16 +121,19 @@ class _LambdaDefinition(Definition):
         inspect_stack = inspect.stack()
         assert len(inspect_stack) > 2
         parent = inspect_stack[2]
-
         super().__init__(prop_symb, properties, is_compound, params, body, scope, parent.filename, parent.lineno)
         self.apply_callable = apply_callable
     def apply(self, expr: Expression, args: list[Expression], scope: 'Scope', prop: Property) -> Expression:
+        if len(self.params) > len(args):
+            perror(ErrorMessage.BAD_NUMBER_ARGS, self.params, self, args, anchor=expr)
+        for param, arg in zip(self.params, args):
+            if not inherits(arg, param):
+                perror(ErrorMessage.BAD_TYPE, arg, param, anchor=expr)
         self.trace_stack.append((expr, args, scope, prop))
         res = self.apply_callable(self, expr, args, scope, prop)
         self.trace_stack.pop()
         return res
-
-
+    
 # Definitions begin below
 
 @register_definition('assign', ['identifier'], ['rval'])
@@ -386,7 +396,7 @@ def import_module(anchor: ProvenanceAware, path_str: str):
     return module
 
 @register_definition('import', ['string', 'python', 'definition'], ['import_signatures...'])
-def import_python_definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
+def import_python_definition(lhs: Expression) -> Expression:
     path = lhs.force_get_property('string')
     # Load in the python file
     import_module(lhs, path.associated_value)
@@ -413,14 +423,34 @@ def logical_not(lhs: Expression) -> Expression:
 
 # Property operators
 
+@register_definition('inherits', [], ['super'])
+# TODO stop calling inherits directly and replace with main.resolve_property_on
+def inherits(lhs: Expression, rhs: Expression) -> bool:
+    # TODO here we assume that lhs properties can be treated as unique
+    ''' 
+    lhs is said to inherit rhs if
+    lhs's properties is a superset of rhs's properties
+    '''
+    lhs_props = {prop.property.s:prop for prop in lhs.properties}
+    for rhs_prop in rhs.properties:
+        if rhs_prop.property.s not in lhs_props:
+            return False
+        lhs_prop = lhs_props[rhs_prop.property.s]
+        if len(rhs_prop.compound_properties) > len(lhs_prop.compound_properties):
+            return False
+        for lexpr, rexpr in zip(lhs_prop.compound_properties, rhs_prop.compound_properties):
+            if not inherits(lexpr, rexpr):
+                return False
+    return True
+
 @register_definition('properties')
-def properties(lhs: Expression) -> Expression:
-    res_list = []
+def properties(lhs: Expression) -> list[Expression]:
+    res_list: list[Expression] = []
     for p in lhs.properties:
         res_list.append(Expression(p.property, [
             Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
         ]))
-    return create_list(lhs.symbol, res_list)
+    return res_list
 
 @register_definition('\\', [], ['properties_to_remove...'])
 def remove_property(lhs: Expression, args: list[Expression]) -> Expression:

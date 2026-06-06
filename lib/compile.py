@@ -594,7 +594,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=module)
     return Expression(lhs.symbol.create_renamed(name), lhs.properties).replace_property('compiled_result', compiled_prop)
 
-@register_definition('compile_to', [], ['file_dest'])
+@register_definition('compile_to', [], [('file_dest', ['string'])])
 def compile_to(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     path = rhs.force_get_property('string')
     path_str = path.associated_value
