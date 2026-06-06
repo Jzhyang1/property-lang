@@ -232,12 +232,11 @@ def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Express
 
     # add to definitions
     from main import UserDefinedDefinition
-    scope.local_defns.setdefault(p.property.s, []).append(
-        UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
+    ret =  UserDefinedDefinition(lhs.symbol.s, lhs.properties, 
                    p.is_compound, p.compound_properties, body, scope, p.property.file, p.property.row)
-    )
+    scope.local_defns.setdefault(p.property.s, []).append(ret)
     return Expression(p.property, [
-        Property(p.property.create_renamed('property'), is_association=True, associated_value=p)
+        Property(p.property.create_renamed('property'), is_association=True, associated_value=(p, ret))
     ])
     
 @register_definition('do', [], ['body...'])

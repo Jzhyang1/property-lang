@@ -44,14 +44,12 @@ def each(lhs: Expression, rhs: Expression, scope: Scope) -> Expression:
     assert iterable is not None 
     if iterable.associated_value is None:
         return lhs
-    prop = rhs.force_get_property('property').associated_value
+    prop, defn = rhs.force_get_property('property').associated_value
     from main import resolve_last_property
     res: list[Expression] = []
     for item in iterable.associated_value:
         # item is an Expression
-        expr = Expression(item.symbol, 
-                          item.properties + [prop])
-        res.append(resolve_last_property(expr, scope, []))
+        res.append(defn.apply(item, [], scope, prop))
     return create_list(lhs.symbol, res)
 
 @register_definition('==', ['list'], ['list_operand'])
