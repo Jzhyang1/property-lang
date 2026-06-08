@@ -190,6 +190,9 @@ class Definition(PropertyContainerProtocol, ProvenanceAware):
         return f'[{func_name}]({self.def_file}:{self.def_row})'
     def get_source(self) -> Provenance:
         return Provenance(self.def_file, self.def_row, 0)
+    def as_expression(self) -> Expression:
+        tok = Token(self.prop_symb, self.def_file, self.def_row, 0, token_types['alnum'])
+        return Expression(tok, self.properties)
     
 # For fast Python prototyping
 type PropertyLiteral = 'str|tuple[str,list[ExpressionLiteral]]'

@@ -2,7 +2,8 @@ import os
 from typing import Any
 from constants import Definition, Scope, Expression, Property, Token
 import constants
-from definitions import register_definition, import_raw_python_file, expression_to_associated_value
+from definitions import register_definition, expression_to_associated_value
+from imports import import_raw_python_file
 from errors import perror, pwarning
 
 class GeneratorError(Exception):

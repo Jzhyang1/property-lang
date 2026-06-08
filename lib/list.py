@@ -1,8 +1,8 @@
 from constants import Definition, Provenance, Scope, Expression, Property, Token
 from errors import pwarning
 from definitions import register_definition, create_list
-import definitions
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+import imports
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 # A sequential collection of heterogeneous elements
 

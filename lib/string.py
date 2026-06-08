@@ -1,10 +1,10 @@
 from constants import Definition, Provenance, Scope, Expression, Property, Token
 from definitions import register_definition
-import definitions
+import imports
 
 # We extend compilation
 import llvmlite.ir as ir
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 
 @register_definition('==', ['string'], ['operand'])

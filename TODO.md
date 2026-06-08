@@ -7,3 +7,8 @@
 - Assembly properties (e.g. registers, operands)
 - Architecture and OS dependent properties
 - Scoped type resolution for compile
+- Multithreading
+- Race condition debugging tool
+- Timing tool compile
+- Loop/repeat
+- Property matching a complement of a set of properties

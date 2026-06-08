@@ -1,11 +1,11 @@
 from constants import Definition, Provenance, Scope, Expression, Property, Token
 from errors import perror, pwarning
 from definitions import register_definition
-import definitions
+import imports
 
 # We extend compilation
 import llvmlite.ir as ir
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 class PointedTo:
     def __init__(self, items: list[Expression], index: int = 0):

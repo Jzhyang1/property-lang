@@ -4,15 +4,15 @@ import os
 from constants import Definition, Provenance, Scope, Expression, Property, Token
 from errors import pwarning
 from definitions import register_definition
-import definitions
+import imports
 
 # We extend compilation
 import llvmlite.ir as ir
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 @register_definition('file')
-def file_property(lhs: Expression) -> Expression:
-    return lhs.create_with_property(Property(lhs.symbol.create_renamed('file')))
+def file_property(lhs: Expression, prop: Property) -> Expression:
+    return lhs.create_with_property(prop)
 
 @register_definition('copy', ['file'])
 def assign_file(lhs: Expression) -> Expression:

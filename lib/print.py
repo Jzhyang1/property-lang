@@ -1,12 +1,12 @@
 from constants import Definition, Provenance, Scope, Expression, Property, Token
 from definitions import register_definition, expression_to_associated_value
-import definitions
+import imports
 
 # We extend compilation
 import llvmlite.ir as ir
 
 from errors import ErrorMessage, perror, pwarning
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 @register_definition('print', ['format', 'string'], ['args...'])
 def format_print(lhs: Expression, args: list[Expression]):
@@ -19,10 +19,19 @@ def format_print(lhs: Expression, args: list[Expression]):
         perror("Bad arguments {} for format specifier {}", raw_args, fmt, anchor=lhs, child_error=e)
     print(s)
 
+@register_definition('print', ['integer'])
+def print_integer(lhs: Expression) -> Expression:
+    print(lhs.force_get_property('integer').associated_value)
+    return lhs
+
+@register_definition('print', ['string'])
+def print_string(lhs: Expression) -> Expression:
+    print(lhs.force_get_property('string').associated_value)
+    return lhs
+
 @register_definition('print', ['list'])
-def print_list(lhs: Expression) -> Expression:
-    lval = lhs.force_get_property('list').associated_value
-    print(lval)
+def print_list(lhs: Expression) -> Expression: 
+    print(lhs.force_get_property('list').associated_value)
     return lhs
 
 # Compilation

@@ -6,10 +6,10 @@ import ctypes
 import ctypes.util
 
 from constants import Definition, Expression, Property, Provenance, Scope, PropertiesLookup, PropertyContainerProtocol
-from definitions import define_apply, expression_to_associated_value, associated_value_to_expression, register_definition
-import definitions
+from definitions import define_apply, expression_to_associated_value, associated_value_to_expression, register_definition, inherits
+import imports
 from errors import ErrorMessage, perror, pwarning
-compile = definitions.import_module(Provenance.here(), 'compile.py')
+compile = imports.import_module(Provenance.here(), 'compile.py')
 
 # Declare the signatures
 def to_bytes(s: Any) -> bytes:
@@ -36,7 +36,7 @@ def to_ctype(s: Any):
     elif isinstance(s, int):
         return s
     else:
-        perror("Please add to this line that threw the error")
+        perror("Please add to this line that threw the error {}", type(s))
 
 class JITFunction(PropertyContainerProtocol):
     def __init__(self, cfunc, properties: list[Property]):

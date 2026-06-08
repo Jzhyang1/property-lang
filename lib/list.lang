@@ -13,4 +13,4 @@
 			list_updated.list.at(idx - 1);
 		};
 	};
-) jit compile import(at);
+) jit compile import(at compile);

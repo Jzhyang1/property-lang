@@ -1,6 +1,21 @@
 "lib/jitcompile.py" python definition import;
 "lib/print.py" python definition import;
 
+/*
+The interpreted version of print is defined in lib/print.py for efficiency reasons.
+If we use the JIT-defined print, in 1000 iterations, the timing (ns) is given below
+
+JIT (this is 2x the time as Python impl):
+11337041
+10761022
+16001701
+
+Python (this is 4x the time as native C impl):
+6880044
+7368803
+7796049
+*/
+
 0 do (
 	integer_value integer print definition{
 		"%i\n" format print[integer_value];

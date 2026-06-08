@@ -1,9 +1,10 @@
-from typing import Callable, Collection
+from typing import Collection
 
 from constants import Property, Expression, Definition, Scope
 import constants
 from errors import perror, pwarning, ErrorMessage
 from definitions import global_definitions, get_context, inherits, make_global_vars
+import imports # needed for user-space imports
 from tokenizer import tokenize, build_tree
 
 class UserDefinedDefinition(Definition):
@@ -26,10 +27,10 @@ class UserDefinedDefinition(Definition):
 
         last = expr
         for local_expr in self.body:
-            try:
+            # try:
                 last = expression_resolve_all(local_expr, new_scope, constants.resolve)
-            except Exception as e:
-                perror("error while resolving {}", local_expr, anchor=local_expr, child_error=e)
+            # except Exception as e:
+            #     perror("error while resolving {}", local_expr, anchor=local_expr, child_error=e)
         self.trace_stack.pop()
         return last
 
