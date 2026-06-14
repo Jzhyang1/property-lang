@@ -5,7 +5,7 @@ from errors import perror, pwarning, ErrorMessage
 from constants import Definition, ExpressionLiteral, PropertyLiteral, Provenance, ProvenanceAware, Scope, Expression, Property, Token, literal_pack_to_expression, literal_pack_to_property, token_types
 import constants
 
-__LANG__ = '0.0.2'
+__LANG__ = '0.0.3'
 global_definitions: dict[str, list[Definition]] = {}
 
 def make_global_vars(file: str) -> dict[str, Expression]:

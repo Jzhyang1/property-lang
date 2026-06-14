@@ -1,7 +1,7 @@
 "lib/print.lang" import(print);
 "lib/file.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 y assign["tests/example.txt" file open];
 
@@ -10,4 +10,4 @@ x.print;
 
 y.close;
 
-_ test output_assert["Austin, Texas\n"];
+.test output_assert["Austin, Texas\n"];

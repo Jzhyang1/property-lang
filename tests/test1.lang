@@ -2,7 +2,7 @@
 "lib/print.lang" import(print);
 "lib/list.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 /* non-alnum operators are implicitly compound with 
  * the next non-operator token, in this case we get:
@@ -10,7 +10,7 @@ _ test begin[__IMPORT_PATH__];
  */
 22 + 33 print;
 
-x assign[ _ list ];
+x assign[ .list ];
 x assign[ x.append(2) ];
 x assign[ x.append(3) ];
 z assign[ x.each[ n increment definition{n + 1} ] ];
@@ -18,4 +18,4 @@ y assign[ z.at(1). < 4 ];
 y.print;
 z.at(0).print;
 
-_ test output_assert["55\n0\n3\n"];
+.test output_assert["55\n0\n3\n"];

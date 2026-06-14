@@ -10,7 +10,7 @@
 "lib/arithmetic.py" python definition import;
 "tests/imports/square.lang" import(square);
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 7 square.print;
 12 square.print;
@@ -18,4 +18,4 @@ _ test begin[__IMPORT_PATH__];
 7 factorial.print;
 12 factorial.print;
 
-_ test output_assert["49\n144\n5040\n479001600\n"];
+.test output_assert["49\n144\n5040\n479001600\n"];

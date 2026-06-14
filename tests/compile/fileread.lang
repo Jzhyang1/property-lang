@@ -3,7 +3,7 @@
 "lib/compile.py" python definition import;
 "lib/jitcompile.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 0 do (
 	y assign["tests/example.txt" file open];
@@ -13,4 +13,4 @@ _ test begin[__IMPORT_PATH__];
 	y.close;
 ) jit compile import;
 
-_ test output_assert["Austin, Texas\n"];
+.test output_assert["Austin, Texas\n"];

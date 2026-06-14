@@ -2,19 +2,19 @@
 "lib/list.py" python definition import;
 "lib/structure.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
-_ struct structure(
+.struct structure(
 	foo integer,
 	bar integer
 );
-x assign[ _ struct ];
+x assign[.struct];
 x.foo assign(12);
 x.foo.print;
 
-y assign[ _ list[1,2,3,4]];
+y assign[.list[1,2,3,4]];
 
 y.at(0).print;
 y.at[1].print;
 
-_ test output_assert["12\n1\n2\n"];
+.test output_assert["12\n1\n2\n"];

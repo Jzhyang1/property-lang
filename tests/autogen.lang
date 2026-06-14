@@ -2,7 +2,7 @@
 "lib/generate.py" python definition import;
 "lib/arithmetic.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 model generate configure("ollama/llama3.1:8b");
 api_base generate configure("http://localhost:11434");
@@ -19,4 +19,4 @@ check{
 3 fib.print;
 12 fib.print;
 
-_ test output_assert["1\n1\n2\n3\n233\n"];
+.test output_assert["1\n1\n2\n3\n233\n"];

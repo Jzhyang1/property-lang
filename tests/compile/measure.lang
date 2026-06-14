@@ -1,0 +1,10 @@
+"lib/measure.lang" import(measure);
+"lib/jitcompile.py" python definition import;
+"lib/print.py" python definition import;
+
+0 do(
+	t assign [.timedelta measure{
+		"" print;
+	}];
+	t print;
+) jit compile import();

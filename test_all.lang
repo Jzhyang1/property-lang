@@ -4,8 +4,8 @@
 "lib/test.lang" import(pass_count, fail_count);
 "lib/print.lang" import(print);
 
-_ system path("tests").list(recursive).each(
-	path _ definition{
+.system path("tests").list(recursive).each(
+	path run definition{
 		path.split["."].at[1] == "lang" .then{
 			path.run;
 		};

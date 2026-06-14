@@ -1,6 +1,6 @@
 "lib/print.lang" import(print);
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 0 then{"haz" print.}else{"ard" print.}.print;
 1 then{"foo" print.}else{"bar" print.}.print;
@@ -9,4 +9,4 @@ _ test begin[__IMPORT_PATH__];
 0 then{"sin" print.}.print;
 0 else{"cos" print.}.print;
 
-_ test output_assert["ard\nard\nfoo\nfoo\nwoo\nwoo\n3\n0\ncos\ncos\n"];
+.test output_assert["ard\nard\nfoo\nfoo\nwoo\nwoo\n3\n0\ncos\ncos\n"];

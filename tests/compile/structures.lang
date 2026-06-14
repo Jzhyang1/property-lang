@@ -4,22 +4,22 @@
 "lib/compile.py" python definition import;
 "lib/jitcompile.py" python definition import;
 "lib/test.lang" import(begin, output_assert);
-_ test begin[__IMPORT_PATH__];
+.test begin[__IMPORT_PATH__];
 
 0 do {
-	_ struct1 structure(
+	.struct1 structure(
 		bin integer,
 		baz integer,
 	);
-	_ struct2 structure(
+	.struct2 structure(
 		foo integer,
 		bar struct1,
 	);
 
 	0 structures definition{
-		z assign[_ struct2(
+		z assign[.struct2(
 			12;
-			_ struct1(
+			.struct1(
 				11,
 				10,
 			);
@@ -30,4 +30,4 @@ _ test begin[__IMPORT_PATH__];
 
 0 structures.print;
 
-_ test output_assert["10\n10\n"];
+.test output_assert["10\n10\n"];

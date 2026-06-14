@@ -20,9 +20,9 @@ Python (this is 4x the time as native C impl):
 	integer_value integer print definition{
 		"%i\n" format print[integer_value];
 		integer_value;
-	} return(_ integer);
+	} return(.integer);
 	string_value string print definition{
 		"%s\n" format print[string_value];
 		string_value;
-	} return(_ string);
+	} return(.string);
 ) jit compile import(print);

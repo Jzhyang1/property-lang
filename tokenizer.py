@@ -87,6 +87,8 @@ def build_tree_symbol(token: Token) -> Expression:
         return Expression(token, [
             Property(token.create_renamed('identifier'))
         ])
+    elif token.s == '.':
+        return Expression(token, [])
     else:
         return Expression(token, [
             Property(token.create_renamed('operator'))

@@ -40,6 +40,7 @@ The difference between the dots are as follows:
 - `!` marks that the expression up to this point should be resolved upon parse (this is useful
   for compile-time optimization).
 
+> Note that `.` as the initial symbol (not a property) is used as an empty placeholder
 
 #### Variables
 
@@ -53,6 +54,7 @@ x. /* this expands into `x identifier.` which resolves into 12 */
 
 > This is confusing for most people, but **variables are not implicitly resolved**. There must always be a dot following a variable if the value is desired.
 
+> To bundle methods together, prefer definitions over structure variables. E.g. `system.out.write[x]` is better as `.system out write[x]`
 
 #### Libraries
 
@@ -76,28 +78,32 @@ Here's an example:
 
 #### Operator Definitions
 
-This looks a similar to functions in other languages, except there is no explicit return value and one of the arguments comes before the function/*operator* name.
+This looks a similar to functions in other languages, the differences are:
+- the first argument comes before the function/*operator* name
+- parameter types (optional) comes in an `is` property
+- the return type (optional) comes after the body
+- the return value is the last expression in the definition
 
 ```Go
-base integer power(exp integer) definition{
+base is(integer) power(exp is(integer)) definition{
 	half assign [ exp / 2 ];
 	remainder assign [ exp.-(2 * half) ];
 	result1 assign [ remainder.then[base]else[1] ];
 	result2 assign [ half.then[base.power[half]]else[1] ];
 	result3 assign [ result2 * result2 ];
 	result1 * result3;
-};
+} return(.integer);
 ```
 
 To prevent *resolution* before the arguments to the definition is resolved, we use `{}`. We can manually force properties to get resolved by using `!` such as in the following case:
 
 ```Go
 x assign(2);
-_ print2 definition{
+.print2 definition{
   x!print;  /* this becomes `2 print` */
 };
 x assign(3);  /* x is no longer 2 */
-_ print2; /* still prints 2 */
+.print2; /* still prints 2 */
 ```
 
 #### Interpretation, Generation, Compilation
@@ -114,11 +120,9 @@ api_base generate configure("...");
 api_key  generate configure("...");
 api_version generate configure("...");
 
-_ python generate(
-	"cache/fib.py", 
+"cache/fib.py" python generate( 
 	"implement a function 'fib' that accepts an unsigned integer 'n' and returns the n-th Fibonacci number of the sequence beginning with 1,1,2,... (0-indexed). Your solution should be implemented using DP", 
-	fib
-) check{
+) import(fib) check{
 	0 fib. == 1,
 	2 fib. == 2,
 };
@@ -158,6 +162,12 @@ A *property* can be any of
 
 An *expression* ends upon encountering a comma (`,`) or  semicolon (`;`)
 
+**Resolution**
+The dot (`.`) is a property-less placeholder when used as a symbol.
+It is common to see `.function;` for functions that don't take arguments.
+
+See Section **Properties** for how it is used to resolve properties.
+
 **Identifier**
 Any word that contains alphabetical characters and possibly also
 underscore (`_`) and digits.
@@ -165,7 +175,7 @@ underscore (`_`) and digits.
 Has the implicit property `identifier`
 
 **Operator**
-Any sequence of 1 or more of the following characters: `~!@#$%^&*/-+=<>|?:;.`
+Any sequence of 1 or more of the following characters: `~!@#$%^&*/-+=<>|?:`
 
 Has the implicit property `operator`
 
