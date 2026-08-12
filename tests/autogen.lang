@@ -7,7 +7,8 @@
 model generate configure("ollama/llama3.1:8b");
 api_base generate configure("http://localhost:11434");
 
-"cache/fib.py" python generate("implement a function 'fib' that accepts an unsigned integer 'n' and returns the n-th Fibonacci number of the sequence beginning with 1,1,2,... (0-indexed). Your solution should be implemented using DP", fib) 
+"cache/fib.py" python generate("implement a function 'fib' that accepts an unsigned integer 'n' and returns the n-th Fibonacci number of the sequence beginning with 1,1,2,... (0-indexed). Your solution should be implemented using DP") 
+import(fib)
 check{
 	0 fib == 1;
 	2 fib == 2;

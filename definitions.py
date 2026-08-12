@@ -53,7 +53,7 @@ def associated_value_to_expression(anchor: Token, value: Any, name:'str|None'=No
     elif isinstance(value, Expression):
         return value
     else:
-        perror(f'unable to convert associated value {value} of type {type(value)} to expression in {name}', anchor=anchor)
+        perror(ErrorMessage.BAD_TYPE, value, 'Expression', anchor=anchor)
 
 def get_defn_file(source_type_object) -> str:
     return inspect.getfile(source_type_object) or "<imported file>"
@@ -225,12 +225,24 @@ def update_context(lhs: Expression, scope: Scope) -> Expression:
     existing_context.properties += [p.copy() for p in lhs.properties]
     scope.local_vars['__CONTEXT__'] = existing_context
     return lhs
+
+def expand_typed_properties(expr: Expression) -> Expression:
+    # Expands the "is" property into properties
+    if (is_prop := expr.try_get_property('is')) is None:
+        return expr
+    props = [Property(expr.symbol) for expr in is_prop.compound_properties]
+    expr = expr.discard_property('is')
+    expr.properties += props
+    return expr
     
 @register_definition('definition', [], ['body...'])
 def definition(lhs: Expression, body: list[Expression], scope: Scope) -> Expression:
     lhs = lhs.discard_property('identifier')
     p = lhs.properties.pop()
-    p.compound_properties = [e.discard_property('identifier') for e in p.compound_properties]
+    lhs = expand_typed_properties(lhs)
+    p.compound_properties = [
+        expand_typed_properties(e.discard_property('identifier')) for e in p.compound_properties
+    ]
 
     # add to definitions
     from main import UserDefinedDefinition

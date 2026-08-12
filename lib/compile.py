@@ -7,7 +7,8 @@ import llvmlite.binding as llvm
 from constants import Definition, Scope, PropertyContainerProtocol, PropertiesLookup, Expression, Property, Token
 import constants
 from definitions import register_definition, define_apply, get_context, update_context
-from errors import perror, pwarning
+from errors import ErrorMessage, perror, pwarning
+from imports import copy_these_from_scope
 
 llvm.initialize_native_target()
 llvm.initialize_native_asmprinter()
@@ -81,6 +82,8 @@ def _default_typemap(anchor: Token) -> PropertiesLookup[CompileTypeProperties]:
         CompileTypeProperties(ir.IntType(64), [Property(anchor.create_renamed('integer'))]),
         CompileTypeProperties(ir.PointerType(ir.IntType(8)), [Property(anchor.create_renamed('string'))]),
         CompileTypeProperties(ir.PointerType(ir.IntType(64)), [Property(anchor.create_renamed('pointer'))]), # TODO better type mapping for heterogenous pointers
+        CompileTypeProperties(ir.IntType(64), [Property(anchor.create_renamed('timestamp'))]), # TODO move this elsewhere
+        CompileTypeProperties(ir.IntType(64), [Property(anchor.create_renamed('timedelta'))]), # TODO move this elsewhere
         CompileTypeProperties(ir.PointerType(ir.IntType(8)), [Property(anchor.create_renamed('file'))]), # We will treat files as opaque pointers
         CompileTypeProperties(ir.PointerType(ir.IntType(8)), [Property(anchor.create_renamed('list'))]), # We will treat lists as opaque pointers
     ])
@@ -273,9 +276,12 @@ def compile_assign(lhs: Expression, rhs: Expression, scope: Scope) -> Expression
     var = get_compiled(var_expr, scope)
     val = get_compiled(val_expr, scope)
     if not all(val_expr.try_get_property(p.property.s) for p in var_expr.properties):
-        return pwarning(f"Type mismatch in assignment to variable '{lhs.symbol.s}'", anchor=lhs)
+        return pwarning(ErrorMessage.BAD_TYPE, val, var, anchor=lhs)
     builder = get_compile_construct(scope, '__BUILDER__')
-    compile_res = builder.store(val, var)
+    try:
+        compile_res = builder.store(val, var)
+    except TypeError as e:
+        perror(ErrorMessage.BAD_TYPE, val, var, anchor=lhs, child_error=e)
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=compile_res)
     return lhs.replace_property('compiled_result', compiled_prop)
 
@@ -529,7 +535,11 @@ def _cstdlib_module():
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strcat')
     ir.Function(module, ir.FunctionType(ir.IntType(64), [ir.PointerType(ir.IntType(8))]), name='strlen')
     ir.Function(module, ir.FunctionType(ir.PointerType(ir.IntType(8)), [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]), name='strtok')
-    
+    # time
+    timespec_struct = module.context.get_identified_type('timespec_struct')
+    timespec_struct.set_body(ir.IntType(64), ir.IntType(64))
+    ir.Function(module, ir.FunctionType(ir.PointerType(timespec_struct), [ir.PointerType(timespec_struct)]), name='timespec_get')
+
     return module
 
 def _imported_signature(src:ir.Module, exclude: Collection[ir.Function] = []) -> tuple[ir.Module, Collection[ir.Function]]:
@@ -596,12 +606,7 @@ def compile_import(lhs: Expression, args: list[Expression], scope: Scope) -> Exp
     imported_modules[name] = _imported_signature(module, inherited)
     
     # Export global definitions as well
-    for arg in args:
-        if (found_all := compile_scope.local_defns.get(arg.symbol.s)):
-            for defn in found_all:
-                scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
-        else:
-            pwarning(f"Cannot find definition for '{arg.symbol.s}' to import", anchor=arg)
+    copy_these_from_scope(compile_scope, scope, args, lhs)
     compiled_prop = Property(lhs.symbol.create_renamed('compiled_result'), is_association=True, associated_value=module)
     return Expression(lhs.symbol.create_renamed(name), lhs.properties).replace_property('compiled_result', compiled_prop)
 

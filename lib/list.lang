@@ -2,7 +2,7 @@
 "lib/jitcompile.py" python definition import;
 
 0 do (
-	list_value list at(idx integer) definition{
+	list_value is(list) at(idx integer) definition{
 		item_size assign[list_value.pointer.dereference];
 		list_advanced assign[list_value.pointer.+(1)];
 

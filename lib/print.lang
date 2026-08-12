@@ -25,4 +25,4 @@ Python (this is 4x the time as native C impl):
 		"%s\n" format print[string_value];
 		string_value;
 	} return(.string);
-) jit compile import(print);
+) jit compile import(.compile integer print, .compile string print);

@@ -95,8 +95,10 @@ def expression_resolve_all(expr: Expression, scope: Scope, resolve_these: Collec
 
         if prop.property.s in resolve_these:
             expr_copy = resolve_last_property(expr_copy, scope, prop.compound_properties)
-            expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
-            assert not any(p.property.s in resolve_these for p in expr_copy.properties)
+            if len(expr_copy.properties) > 0 and expr_copy.properties[-1].property.s in resolve_these:
+                expr_copy = expression_resolve_all(expr_copy, scope, resolve_these)
+            else:
+                expr_copy = Expression(expr_copy.symbol, expr_copy.properties.copy())
         else:
             expr_copy.properties.append(prop)
     return expr_copy

@@ -153,6 +153,26 @@ class CompiledInterpretableUserDefinition(Definition):
             perror("{}", e, anchor=lhs)
         return associated_value_to_expression(lhs.symbol, res)
 
+class JITScope(Scope):
+    def __init__(self, compile_scope: Scope, module: ir.Module):
+        super().__init__()
+        for name, defn_list in compile_scope.local_defns.items():
+            jit_defn_list = defn_list
+            for defn in defn_list:
+                if not isinstance(defn, compile.CompiledUserDefinition):
+                    continue
+                non_compile_properties = [p for p in defn.properties if p.property.s != 'compile']
+                func_name = compile.mangle_signature(name, non_compile_properties)
+                llvm_func: ir.Function = module.get_global(func_name)
+                cfunc_ptr = global_jit.find_llvm_func(llvm_func)
+                jit_func = JITFunction(cfunc_ptr, non_compile_properties)
+                # TODO What if we already have the function registered in JIT
+                global_jit.compiled_funcs.setdefault(name, PropertiesLookup()).exprs.append(jit_func)
+                imported_func = CompiledInterpretableUserDefinition(name, non_compile_properties, defn.is_compound, defn.params, defn.scope, llvm_func, cfunc_ptr)
+                jit_defn_list.append(imported_func)
+            self.local_defns[name] = jit_defn_list
+        # TODO global values
+
 @register_definition('import', ['jit', 'compile'], ['signatures...'])
 def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
     compile_scope = Scope(parent_scope=scope)
@@ -161,41 +181,7 @@ def import_jit_compile(lhs: Expression, args: list[Expression], scope: Scope) ->
     # JIT up all definitions in compile_scope
     module: ir.Module = expr.force_get_property('compiled_result').associated_value
     global_jit.add_module(module)
-    for arg in args:
-        defns = compile_scope.local_defns.get(arg.symbol.s)
-        if defns is None:
-            return pwarning(ErrorMessage.NO_IMPORT_SYMBOL, arg, lhs, anchor=arg)
-        # TODO Only handle CompiledUserDefinitions that are not in GlobalJIT yet 
-        for defn in defns:
-            if not isinstance(defn, compile.CompiledUserDefinition):
-                continue
-            # Copy over the compile definitions to the main scope, so that they can be called from other JIT-compiled functions
-            _, match = scope.defn_lookup_recursive(defn.prop_symb).lookup(defn.properties, [])
-            if match is not None and set(p.property.s for p in match.properties) == set(p.property.s for p in defn.properties):
-                pwarning(f"Function {match} exists with same properties as {defn}, skipping JIT compilation", anchor=arg)
-            else:
-                scope.local_defns.setdefault(defn.prop_symb, []).append(defn)
-
-            symb, non_compile_properties = defn.prop_symb, defn.properties
-            for i, prop in enumerate(defn.properties):
-                if prop.property == 'compile':
-                    non_compile_properties = defn.properties[:i] + defn.properties[i+1:]
-                    break
-            # TODO Check that we don't already have the function registered in JIT
-            func_name = compile.mangle_signature(symb, non_compile_properties)
-            llvm_func: ir.Function = module.get_global(func_name)
-            cfunc_ptr = global_jit.find_llvm_func(llvm_func)
-            jit_func = JITFunction(cfunc_ptr, non_compile_properties)
-            global_jit.compiled_funcs.setdefault(symb, PropertiesLookup()).exprs.append(jit_func)
-            
-            # Check that we don't already have the function registered in scope
-            _, match = scope.defn_lookup_recursive(symb).lookup(non_compile_properties, [])
-            if match is not None and set(p.property.s for p in match.properties) == set(p.property.s for p in non_compile_properties):
-                pwarning(f"Function {match} exists with same properties as {defn}, skipping JIT compilation", anchor=arg)
-            else:
-                # Create CompiledInterpretableUserDefinition
-                idefn = CompiledInterpretableUserDefinition(symb, non_compile_properties, defn.is_compound, defn.params, defn.scope, llvm_func, cfunc_ptr)
-                scope.local_defns.setdefault(symb, []).append(idefn)
+    imports.copy_these_from_scope(JITScope(compile_scope, module), scope, args, lhs)
     # Run the module once
     llvm_main: ir.Function = module.get_global(expr.symbol.s)
     global_jit.find_llvm_func(llvm_main)()

@@ -1,0 +1,14 @@
+"lib/measure.py" python definition import;
+"lib/list.py" python definition import;
+
+_ is(compile, timedelta) measure definition{
+	start assign[.timestamp now];
+	/* TODO is this calling the interpret EACH or the compile EACH */
+	arguments.each[
+		n exec definition{
+			n.;
+		}
+	];
+	end assign[.timestamp now];
+	end - start;
+};

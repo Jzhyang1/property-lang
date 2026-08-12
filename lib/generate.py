@@ -38,21 +38,18 @@ def generate_file(output_file: str, prompt: str) -> None:
         f.write(content)
 
 
-@register_definition('generate', ['string', 'python'], [('prompt', ['string']), 'generate_signatures...'])
-def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-    rhs, *args = args
-    output_file, prompt = lhs.force_get_property('string'), rhs.force_get_property('string')
-    output_file, prompt = output_file.associated_value, prompt.associated_value
+@register_definition('generate', ['string', 'python'], [('prompt', ['string'])])
+def generate_definition(lhs: Expression, rhs: Expression) -> Expression:
+    output_file = lhs.force_get_property('string').associated_value
+    prompt = rhs.force_get_property('string').associated_value
     cache_file = f'cache/generator/{output_file}.log'
 
-    imports = [defn.symbol.s for defn in args]
     if os.path.exists(output_file) and os.path.exists(cache_file):
         # We cached the previous prompt in the file so that we can decide when to use
         # a cached version of the generator output, and when to call the generator again.
         with open(cache_file, 'r') as f:
             previous = f.read()
         if previous == prompt:
-            import_raw_python_file(lhs, output_file, imports, scope)
             return lhs
     
     # We need to generate the output source from scratch
@@ -60,24 +57,26 @@ def generate_definition(lhs: Expression, args: list[Expression], scope: Scope) -
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, 'w') as f:
         f.write(prompt)
-    # then we create load the generated source and add definitions to `scope`
-    import_raw_python_file(lhs, output_file, imports, scope)
     return lhs
 
-@register_definition('check', ['generate'], ['conditions...'])
+@register_definition('import', ['string', 'generate'], ['generate_signatures...'])
+def import_generation(lhs: Expression, args: list[Expression], scope: Scope):
+    # we create the file and load the generated source and add definitions to `scope`
+    # TODO we assume the next property is the generate property
+    from main import resolve_last_property
+    output_file = lhs.force_get_property('string').associated_value
+    resolve_last_property(lhs, scope, []) # create the file
+    import_raw_python_file(lhs, output_file, args, scope)
+    return lhs
+
+@register_definition('check', ['string', 'generate', 'import'], ['conditions...'])
 def check_definition(lhs: Expression, args: list[Expression], scope: Scope) -> Expression:
-    generate = lhs.try_get_property('generate')
-    assert generate is not None
-    # Get to the associated generator definition
-    properties = []
-    for p in lhs.properties:
-        properties.append(p)
-        if p == generate: break
-    new_lhs = Expression(lhs.symbol, properties)
+    output_file = lhs.force_get_property('string').associated_value
+    import_properties = lhs.force_get_property('import').compound_properties
     from main import expression_resolve_all, resolve_last_property
     # repeat until all checks pass
     for _ in range(10): # max 10 iterations to prevent infinite loops
-        resolved = resolve_last_property(new_lhs, scope, [])
+        resolved = resolve_last_property(lhs, scope, [])
 
         for condition in args:
             condition_evaluated = expression_resolve_all(condition, scope, constants.resolve)
@@ -88,13 +87,10 @@ def check_definition(lhs: Expression, args: list[Expression], scope: Scope) -> E
             # all conditions passed, we are done
             return resolved
         # delete the generated source so that we can regenerate it in the next iteration
-        generated_file = generate.compound_properties[0].try_get_property('string')
-        assert generated_file is not None
-        generated_file = generated_file.associated_value
-        if os.path.exists(generated_file):
-            os.remove(generated_file)
+        if os.path.exists(output_file):
+            os.remove(output_file)
         # delete the symbols defined by the generated file from the scope so that we can re-import them in the next iteration
-        for defn in generate.compound_properties[2:]: # 0, 1 are output_file and prompt, the rest are definitions
+        for defn in import_properties: # 0, 1 are output_file and prompt, the rest are definitions
             if defn.symbol.s in scope.local_vars:
                 del scope.local_vars[defn.symbol.s]
             elif defn.symbol.s in scope.local_defns:
