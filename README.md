@@ -1,46 +1,88 @@
-**IMPORTANT**: PL is unlike other programming languages in MANY ways. 
-Please make sure to read Section 1.
-
 ## 0. Introduction
 
-PL is a programming language designed to be usable in both the preprocessing and the compiled program. 
-You can think of PL as being interpreted with heavy LLVM support.
+3 main ideas:
+
+1. interpreted but generates artifacts (like Makefiles)
+2. Parallel interpretation and 1-pass
+3. Type checking
 
 ## 1. Highlights
 
-#### Descriptive Properties
+#### Expressions
 
-*Properties* can be added to *symbols* as trailing *tokens*. For example, `1 age` is the *symbol* `1` with *property* `age` (there is also a *default property* `integer`). This provides better specificity for operator overloading.
+Every expression is a stack of *properties*. The stack is *resolved* back-to-front by pattern-matching. *Resolution* must be explicit. 
 
-- numbers have default property `integer`
-- strings have default property `string` 
-- normal symbols have default property `identifier`
+In the example below, the properties are `generate`, `import` and `check`. The properties have *args* attached to them via parenthesis (`()`), brackets (`[]`) or braces (`{}`). 
 
-#### Operators
+We match the longest pattern that looks like `check`, `import check`, or `generate import check`.
 
-A function's first operand is moved before the call
+```go
+generate("create a var x=1") import(x) check({x == 1;}).
+```
 
-\[
-  \text{op}(x_1,x_2)\rightarrow x_1\text{ op }(x_2,...)
-\]
+The dot (`.`) *resolves* what the *expression* has stacked up so far. The semicolon (`;`) is the same but also clears the stack.
 
-More concretely, imagine the operator "concat" (`+`). We can write it as a function `+("h", "i")` but in PL it is written `"h"+"i"`, just like `1+2`.
+#### Parenthesis
 
-> **Note** PL order of operations is always left to right, so we must explicitly write the mathematical expression $1+2\times3$ as `1+(2*3)` or `2*3+1`
+- Parenthesis (`()`) doesn't *resolve* its contents by default, but allows things inside to *resolve*.
+- Brackets (`[]`) *resolve* its contents by default. This is primarily used for arithmetic.
+- Braces (`{}`) takes everything inside as-is. It does not *resolve* at all.
 
+Any of these parenthesis can be used in conjunction with a *property* to be passed as its *args*. There must not be a space between the *property* and the parenthesis to be passed as *args*.
 
-In general, *operators* take the *lhs* and a *rhs* (default `()`) as arguments and are marked by a trailing dot (`.`/`;`/`!`) to specify that the argument should be resolved. E.g. `1+(2).` PL treats *properties* and *operators* the same. The last *property* becomes an operator whenever a dot is present. This includes cases where the *property* is implicit, like `identifier`
+#### Chained Expressions
 
-> Note: for convenience, we can write `1+2` because special characters combine with the next token automatically to form `1.+(2.)`. In non special-character cases though, the parenthesis (`()`) and dot (`.`/`;`/`!`) are required.
+Expressions continue to build until a comma (`,`) or semicolon (`;`) is reached. E.g. `fib(3).pow(2).mod(17);`. 
+- `fib` will get `(undefined,3)`
+- `pow` will get `(6,2)`
+- `mod` will get `(36,17)`
 
-The difference between the dots are as follows:
-- `.` marks that the expression up to this point should be resolved before use. This is delayed
-  for expressions in compound properties until the compound property is resolved.
-- `;` is an alias of `.` except it will terminate the expression.
-- `!` marks that the expression up to this point should be resolved upon parse (this is useful
-  for compile-time optimization).
+> **Note** PL order of operations is always left to right, so we must explicitly write the mathematical expression $1+2\times3$ as `1+[2*3]` or `2*3+1`
 
-> Note that `.` as the initial symbol (not a property) is used as an empty placeholder
+> **Note** for convenience, we can write `1+2` because *special characters* combine with the next property via the pattern `1.+(2.)` if it does not already have a parameter.
+
+#### Defining Resolutions
+
+To define a property resolution, we do something like this:
+
+```go
+foo(arg2) prefix(arg1) def{
+  arg1 + arg2;
+};
+/* call via `1 foo(2)` */
+```
+
+> **Note** the braces (`{}`) are used to delay resolution (so we don't try to find the result of `arg1 + arg2` before the function is called). 
+
+Variables are defined in the same way.
+
+```go
+pi def[22 / 7]; /* This is not how pi is actually defined */
+```
+
+#### Parallel Expressions
+
+We have already encountered parallelism without pointing it out. Take the following example again. Properties `a`,`b`,`c` will all resolve in parallel. If any of those properties encounter something it is *unable to do*, it will block. If anthing remains blocked when all other parallel-executing properties terminate, we crash.
+
+```go
+generate(a.) import(b.) check(c.).
+```
+
+For example, we may have something like this.
+
+```go
+/* a */
+x def[1]; /* first definition of x */
+/* b */
+y def[x]; /* y will block until x is defined */
+```
+
+A few other parallelism examples:
+
+```go
+active def[intensity > 0]
+```
+
 
 #### Variables
 
@@ -147,6 +189,61 @@ The above will try to generate a function that satisfies all checks, otherwise i
 The above behaves in a similar fashion, except with binary. Note that a slightly different resolution process than `definition` will apply here (things within parenthesis are resolved automatically here)
 
 ## 2. More Details
+
+Tokenization
+
+```ebnf
+(* Whitespace *)
+SPACE         ::= [ \t\n]+
+
+(* Identifiers & Keywords *)
+TOKEN         ::= [_0-9a-zA-Z]+
+
+(* String Literals *)
+STR           ::= '"' ( '\\"' | [^"] )* '"'
+
+(* Matched Brackets *)
+OPAREN_ROUND  ::= "("
+CPAREN_ROUND  ::= ")"
+OPAREN_SQUARE ::= "["
+CPAREN_SQUARE ::= "]"
+OPAREN_CURLY  ::= "{"
+CPAREN_CURLY  ::= "}"
+
+(* Delimiters & Operators *)
+SEP           ::= "," | ";"
+RES           ::= "."
+OP            ::= [^ \t\n_0-9a-zA-Z"()\[\]{};,.]+
+```
+
+Syntax
+```ebnf
+(* Matched Parentheses *)
+PAREN_ROUND   ::= OPAREN_ROUND SPACE? TUPLE SPACE? CPAREN_ROUND
+PAREN_SQUARE  ::= OPAREN_SQUARE SPACE? TUPLE SPACE? CPAREN_SQUARE
+PAREN_CURLY   ::= OPAREN_CURLY SPACE? TUPLE SPACE? CPAREN_CURLY
+
+PARENTHESIZED ::= PAREN_ROUND | PAREN_SQUARE | PAREN_CURLY
+
+(* Safe means adjacent whitespace isn't problematic *)
+SAFE_PROP     ::= STR
+                | TOKEN
+                | OP
+                | TOKEN PARENTHESIZED
+                | OP PARENTHESIZED
+
+DANGEROUS_PROP::= PARENTHESIZED
+
+PROP          ::= SAFE_PROP | DANGEROUS_PROP
+
+(* Primary Term: Handles adjacent properties / space sensitivity *)
+EXPR  ::= PROP ( ( SPACE? SAFE_PROP ) | ( SPACE DANGEROUS_PROP ) )*
+
+(* Tuples & Separated Lists *)
+EMPTY_TUPLE   ::= ""
+NONEMPTY_TUPLE::= EXPR ( SPACE? SEP SPACE? EXPR )*
+TUPLE         ::= NONEMPTY_TUPLE | EMPTY_TUPLE
+```
 
 A program is a series of *expressions* which is composed of
 one *symbol* followed by any number of *properties*.

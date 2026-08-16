@@ -1,0 +1,16 @@
+[TEST] Parse Identifiers
+hello  world
+[TEST] Parse Strings
+hello world
+[TEST] Parse Props
+hello world
+[TEST] Parse Compound Props
+hello world
+first second third
+[TEST] Parse Expression
+hello world
+first second third
+[TEST] Resolve Expression
+hello
+world
+hello world

@@ -5,3 +5,5 @@ cache
 *.o
 *.out
 *.log
+.output
+.test
