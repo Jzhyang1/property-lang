@@ -14,7 +14,7 @@ inline bool should_offload(const DefinitionBody& def, Expression expr) {
  */
 inline Expression resolve_sync(State& state, const DefinitionBody& def, Expression expr, Expression parent) {
     auto start_time = std::chrono::steady_clock::now();
-    Expression ret = def.apply(expr);
+    Expression ret = def.apply(state, expr);
     auto end_time = std::chrono::steady_clock::now();
     def.track_measurement((end_time - start_time).count());
     return ret;

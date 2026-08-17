@@ -173,10 +173,11 @@ Expression parse_expr(std::shared_ptr<State> state, istream& contents, int& next
 
 void parse_pl_file(std::shared_ptr<State> state, istream& contents) {
     // we keep building up expressions and shipping them off
-    int next_char = contents.get();
-    while (next_char > 0) {
+    int next_char;
+    do {
+        next_char = contents.get(); // skip commas
         parse_expr(state, contents, next_char);
-    }
+    } while (next_char > 0);
 }
 
 }

@@ -19,14 +19,14 @@ class DefinitionBody {
     tuple<Expression> body;
     std::unique_ptr<DefinitionMetadata> metadata = std::make_unique<DefinitionMetadata>();
 public:
-    std::function<Expression(Expression, const tuple<Expression>&)> _apply;
+    std::function<Expression(State&, Expression, const tuple<Expression>&)> _apply;
 
     DefinitionBody() = default;
-    DefinitionBody(std::function<Expression(Expression, const tuple<Expression>&)> apply): _apply(apply) {}
-    DefinitionBody(std::function<Expression(Expression, const tuple<Expression>&)> apply, tuple<Expression> body): _apply(apply), body(body) {}
+    DefinitionBody(std::function<Expression(State&, Expression, const tuple<Expression>&)> apply): _apply(apply) {}
+    DefinitionBody(std::function<Expression(State&, Expression, const tuple<Expression>&)> apply, tuple<Expression> body): _apply(apply), body(body) {}
 
-    inline Expression apply(Expression expr) const {
-        return _apply(expr, body);
+    inline Expression apply(State& state, Expression expr) const {
+        return _apply(state, expr, body);
     }
     inline void track_measurement(std::uint64_t time) const {
         metadata->time_sum += time;

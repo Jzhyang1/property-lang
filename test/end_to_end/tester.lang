@@ -1,0 +1,15 @@
+"basic printing",
+"hello world" print;
+2 . print;
+
+"basic structs",
+coords struct{
+	x, y
+};
+
+point def[coords];
+point.x def[4];
+point.y def[5];
+
+point.x.print;
+point.y.print;

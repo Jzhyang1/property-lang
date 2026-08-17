@@ -54,10 +54,30 @@ foo(arg2) prefix(arg1) def{
 
 > **Note** the braces (`{}`) are used to delay resolution (so we don't try to find the result of `arg1 + arg2` before the function is called). 
 
-Variables are defined in the same way.
+Symbolic variables are defined in the same way.
 
 ```go
 pi def[22 / 7]; /* This is not how pi is actually defined */
+```
+
+> A source of confusion for some: **variables are not implicitly resolved**. The variable must be followed by a dot, operator, or enclosed in brackets (`[]`) if the value is desired.
+
+#### Mutables
+
+Use mutable definitions for compound structures.
+
+```go
+/* defines coords, coords x, coords y, coords x def, coords y def */
+coords struct{
+  x, y
+};
+
+/* a copy of the expression `coords` is created by coords. */
+point def[coords[0, 0]];
+
+/* coords x def perform operations on the x of the copy of coords */
+point.x def[0];
+point.y def[1];
 ```
 
 #### Parallel Expressions
@@ -82,21 +102,6 @@ A few other parallelism examples:
 ```go
 active def[intensity > 0]
 ```
-
-
-#### Variables
-
-In PL, **variables do not exist** but instead the operators `declare`, `assign` and `identifier` map *symbols* to values and create an illusion of variables. 
-
-```go
-x integer declare; /* the declare operator creates a map entry for `x` */
-x assign(12); /* the assign operator maps 12 to `x` */
-x. /* this expands into `x identifier.` which resolves into 12 */
-```
-
-> This is confusing for most people, but **variables are not implicitly resolved**. There must always be a dot following a variable if the value is desired.
-
-> To bundle methods together, prefer definitions over structure variables. E.g. `system.out.write[x]` is better as `.system out write[x]`
 
 #### Libraries
 
